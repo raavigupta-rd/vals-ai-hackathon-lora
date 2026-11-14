@@ -6,6 +6,74 @@ Submissions close Sun Nov 15, 2 PM.
 This plan covers data only. Training, RL, and deployment get their own plans, but this one has to feed the two
 training paths the starter actually supports (GRPO and offline OPSD), so it names them where it matters.
 
+## Team and setup
+
+Two people. Each step below names its owner as A or B.
+
+| | A: infra and RL (name: ___) | B: data and scouting (name: ___) |
+|---|---|---|
+| Machine | The always-on cloud box: harness, connector, deployments | Laptop: local repo, PokerBench download, local harness tests |
+| Steps | 1, 6, 7, 9a, 9d, 9f, all GRPO runs | 2, 3, 4, 5, 8, 9b, 9c, 9e, 10 |
+| Owns | `harness/`, `grading.py`, `rl/`, the arena entry | `poker/`, `opsd/`, opponent profiles, the probe log |
+
+Rules between us
+- Each person works on their own branch off `poker` (`poker-a`, `poker-b`) and merges back through a reviewed PR.
+- Only A submits to the arena, so the live entry is never a surprise. B asks A for probe windows.
+- Only one training job runs at a time. Agree in chat whose job is next before launching.
+- A restarts the harness only between runs, since a running run grades with whatever harness is up.
+
+### First hour
+
+1. Both: `ac2 login`, `uv sync`, `(cd harness && uv sync)`, then `ac2 mcp install --agent claude` and restart Claude Code. The AC2 MCP lets Claude read runs, evals and traces directly.
+2. A: get the always-on box and run README steps 1 to 6 on it.
+3. A: deploy `base` and submit it to the arena (step 9d), so it collects games while we build.
+4. B: start step 8 (replay scouting) and download PokerBench (step 1).
+5. A: start 9a, the placement reward, tests first.
+
+### GPU budget (10 GPUs, shared by both of us)
+
+| Job | GPUs | Notes |
+|---|---|---|
+| Arena entry (base, probe or trained) | 1 | Always running. Never delete it. |
+| RL run with `--no-eval` | 6 | A's lane. Evaluate checkpoints with a separate deployment. |
+| Eval deployment or probe build | 1 to 2 | Delete when idle |
+| OPSD run | 4 | B's lane. Only when no RL run is going. |
+
+### Claude setup
+
+Both of us run Claude Code on Opus 5.5 as the main session. The main session plans, makes design calls, and reviews.
+It hands bulk work to subagents and checks their output before using it.
+
+Which agent does what
+
+| Task | Agent | Model |
+|---|---|---|
+| Reward design, plan changes, picking the final model, reviewing reward or harness diffs | Main session | Opus 5.5 |
+| PokerBench converter, replay parser, task builders, repeated edits, running pytest | `sonnet-worker` | Sonnet 5.5 |
+| Finding code or conventions across the repo | `Explore` | Sonnet 5.5 |
+| Reading web pages and docs (AC2 docs, pokerbots.ac pages) | `web-fetch` | Sonnet 5.5 |
+| Labeling replay decisions in bulk, after code filters cut the data down | `sonnet-worker` with `model: haiku` | Haiku 5.5 |
+| Review before merging into `poker` | `code-reviewer` | Sonnet 5.5 |
+
+Rules for agents
+- For data work, write deterministic filters first (regex, dedupe, legality checks). Send only what is left to a model.
+- Run independent subagents in parallel, in one message.
+- Use `/fast` for quick fix-and-retry loops during setup.
+
+Skills by task
+
+| Task | Skill |
+|---|---|
+| 9a placement reward and any grader change | `superpowers:test-driven-development` (the pytest suite already exists) |
+| Harness, connector or rollout failures | `superpowers:systematic-debugging` |
+| Building a plan step with workers | `superpowers:subagent-driven-development` |
+| Reading pokerbots.ac replays if there is no API | `claude-in-chrome` |
+| Opponent profiles and their confidence | `data:explore-data`, `data:statistical-analysis` |
+| One shared opponent-profile page for both of us | `data:build-dashboard` |
+| Watching a training run | `/loop`, for example `ac2 train get <train id>` every 20 minutes |
+| Before merging reward or harness changes | `code-review` |
+| Commits | `commit` (never pushes) |
+
 ## What the README settles
 
 The first draft had six open questions. The README answers most of them.
@@ -93,7 +161,7 @@ Rules
 
 All new code goes in `poker/`. `src/pokerbots/` is the AC2 project package and stays empty on purpose.
 
-### Step 1. Download and baseline (owner: ___, 30 min)
+### Step 1. Download and baseline (owner: A, 30 min)
 
 ```
 pip install huggingface_hub
@@ -105,7 +173,7 @@ In parallel, the deployment lane deploys `base` and runs the base eval on `poker
 
 Done when PokerBench is in `data/pokerbench/` and we have both base eval ids.
 
-### Step 2. Convert PokerBench (owner: ___, 1 hour)
+### Step 2. Convert PokerBench (owner: B, 1 hour)
 
 - Write `poker/pokerbench_to_records.py`. Use the CSV files, because they hold structured fields (position, board, pot, action history, hole cards, correct decision).
 - Nobody has inspected the files, so budget time for surprises.
@@ -114,7 +182,7 @@ Done when PokerBench is in `data/pokerbench/` and we have both base eval ids.
 
 Done when 100% of records pass the schema and a spot check of 20 records matches the source prompts.
 
-### Step 3. Port and run the teacher (owner: ___, 45 min)
+### Step 3. Port and run the teacher (owner: B, 45 min)
 
 - Copy `sim.py` and its helpers into `poker/`. Switch it to 6 seats, blinds 1/2, and 200-chip stacks.
 - Add stack variety: run it at 20, 50, 100 and 200 BB effective, since stacks drift over 30 hands.
@@ -123,7 +191,7 @@ Done when 100% of records pass the schema and a spot check of 20 records matches
 
 Done when we have at least 200k 6-max records with zero illegal actions under the official engine.
 
-### Step 4. Clean and split (owner: ___, 45 min)
+### Step 4. Clean and split (owner: B, 45 min)
 
 Write `poker/build_records.py`.
 1. Validate every record against the schema. Drop and count failures.
@@ -133,7 +201,7 @@ Write `poker/build_records.py`.
 5. Cap preflop folds at about 25% of records.
 6. Write `out/train.jsonl`, `out/val.jsonl`, and `stats.json` with counts by source, street, action and stack depth.
 
-### Step 5. Per-decision OPSD hints (owner: ___, 1.5 hours)
+### Step 5. Per-decision OPSD hints (owner: B, 1.5 hours)
 
 - Change `opsd/build_dataset.py` so the hint is computed per decision instead of the global `HINT`.
 - For each decision in the base train trace, parse the state from the prompt, then build a short hint: equity against a sensible range (`harness/src/poker_harness/engine/equity.py`), pot odds, and the label of the nearest PokerBench or teacher spot.
@@ -142,7 +210,7 @@ Write `poker/build_records.py`.
 
 Done when the builder uploads `pokerbots-opsd-train` and a dry run shows sensible hints for 20 random decisions.
 
-### Step 6. RL task sets (owner: ___, 1 hour)
+### Step 6. RL task sets (owner: A, 1 hour)
 
 Build extra datasets in the `vals_tools/tasks.py` format. Keep the starter splits as they are, so evals stay
 comparable with base.
@@ -156,7 +224,7 @@ comparable with base.
 Check every multi-hand task stays under the 1 MiB connector limit and that the GRPO token budget
 (`--max-response-len`) covers the longer games.
 
-### Step 7. Eval sets (owner: ___, 30 min)
+### Step 7. Eval sets (owner: A, 30 min)
 
 | Set | Use |
 |---|---|
@@ -165,13 +233,13 @@ Check every multi-hand task stays under the 1 MiB connector limit and that the G
 | `play_local.py --hands 30` | Format check under the event rules before any submission: 0 failed decisions |
 | `play_local.py --opponents bots` | Stress test against scripted `maniac`, `nit` and `calling_station` players |
 
-### Step 8. Arena scouting (owner: ___, ongoing from Saturday evening)
+### Step 8. Arena scouting (owner: B, ongoing from Saturday evening)
 
 - Read replays on pokerbots.ac. Note how other entries react to large bets and shoves, how often they fold to aggression, and how often their decisions fail (cut off, illegal).
 - Turn what we see into (a) short reads the model can write to its scratchpad and (b) hint text for step 5.
 - Replays cover every game, not only ours, so this needs no special entry of our own.
 
-### Step 9. Exploit the field (owner: ___, from Saturday evening)
+### Step 9. Exploit the field (owner: A for 9a, 9d, 9f; B for 9b, 9c, 9e, from Saturday evening)
 
 The goal is the best final placement against the entries actually in the arena, not GTO play or chip profit.
 

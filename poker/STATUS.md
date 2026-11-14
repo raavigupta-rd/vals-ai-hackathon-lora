@@ -1,0 +1,48 @@
+# Person B execution status
+
+Work is on `poker-b`, branched from `poker`, with no arena submission or training launch.
+
+Integration update: pulled Person A's work through `815c9bf` into this branch with a fast-forward. Local B changes
+remain uncommitted and unpublished. The combined suite passed 23 root tests and 106 harness tests, with one skip.
+`poker/HANDOFF.md` lists the remaining integration and training steps. The latest live check found base smoke
+`eval_992f2c5ead5b` running, one connector, all eight starter/game datasets and no training jobs. Recheck state;
+the older observations below are historical snapshots, not live status.
+
+| Plan step | State | Evidence / next dependency |
+|---|---|---|
+| 2: PokerBench converter | Implemented and run | 574,200 schema-valid records, 11,000 source-test records kept separate; 20/20 original-prompt checks matched |
+| 3: Port teacher | Waiting for source | No `sim.py` or helpers exist in this checkout; do not claim a substitute as a port |
+| 4: Clean and split | Implemented and run for PokerBench | 13,565 train, 1,609 validation; `out/stats.json` records all exclusions |
+| 5: Per-decision hints | Implemented; real trace dry run pending | Pot odds, sampled tight-range equity, matched clean training labels, format/survival rules; requires base train eval/traces |
+| 8 / 9b: Scouting and profiles | Started with actual public replays | Nine exported games; three team entries in `out/scouting/arena_profiles.json` |
+| 9c: Simulated field | Pending stronger profiles and A handoff | Current ladder samples are too small for reliable calibration; no shared engine edits or GRPO launch |
+| 9e: Probes | Log prepared | `poker/scouting/probe_log.csv`; coordinate training slot and submission window with A |
+| 10: Solver spots | Optional, not started | Core trace path takes priority |
+
+Data limitations: source hand IDs are absent, so all scenario families seen in test are excluded conservatively.
+This removes 527,827 source-training records before later checks. Another 2,004 lack engine verification,
+8,586 have fractional event-chip states, 19 are duplicates, and 9,590 exceed the preflop-fold cap.
+Most retained labels are preflop; the validation split contains no postflop records. Do not use it as a complete
+postflop evaluation. Original PokerBench test data remains separate for that purpose.
+
+Initial observations (early ladder, one submission version per team):
+
+- Martingale: 135 hands over six games, VPIP 43/135, PFR 21/135; folded 32/55 times facing pot-size-or-larger
+  pressure and 5/14 times facing a shove. Four failed decisions out of 196. These numbers have wide uncertainty
+  and correlated observations; they do not establish a dependable exploit.
+- Friends: 30 hands in one game. Insufficient evidence to calibrate a team-specific opponent.
+- Spark: one dealt hand before busting in the downloaded sample. No dependable style estimate.
+
+Rates and Wilson intervals, team IDs and submission identities are in the profile JSON. Replays are linked from
+[the arena match list](https://www.pokerbots.ac/matches). Refresh profiles as teams submit new models and review
+which entries are probes before using them to represent the final tournament field.
+
+AC2 0.3.97 is installed and authenticated in `.venv`. The doctor passed every project/dataset check for
+`prj_200dcc41ef41`. The `base` deployment is ready (`infer_d3d2b6b92171`). At inspection, the only evals were
+successful table-smoke (`eval_50d9b110f7e1`) and smoke (`eval_15d0c3b30e5b`); neither is train data and neither
+was used for OPSD. No training runs existed. A's base eval on `pokerbots-train` is still needed.
+
+Verification so far: 12 data/scouting tests passed. The harness suite had 101 passes and one skip, plus a
+subprocess import failure that passed when rerun with `PYTHONPATH` set to `harness/src`. Root SDK-dependent
+tests now pass as well. The dynamic-hint integration test checks that hints receive only the prompt, preserve
+base's reply exactly, and are added only to the teacher selection. A real base-trace OPSD dry run remains pending.

@@ -1,0 +1,230 @@
+{
+  "teams": {
+    "org_001d026e7b11": {
+      "submissions": [
+        "base_mihail:infer_d1af09992be8:v1"
+      ],
+      "counts": {
+        "games": 1,
+        "bust_games": 1,
+        "busts": 1,
+        "hands": 1,
+        "decisions": 5,
+        "failed": 0,
+        "pot_bet_opportunities": 1,
+        "pot_bet_folds": 0,
+        "shove_opportunities": 1,
+        "shove_folds": 0,
+        "vpip": 1,
+        "pfr": 1
+      },
+      "vpip": {
+        "successes": 1,
+        "opportunities": 1,
+        "rate": 1.0,
+        "ci95": [
+          0.20654329147389294,
+          1
+        ]
+      },
+      "pfr": {
+        "successes": 1,
+        "opportunities": 1,
+        "rate": 1.0,
+        "ci95": [
+          0.20654329147389294,
+          1
+        ]
+      },
+      "fold_to_shove": {
+        "successes": 0,
+        "opportunities": 1,
+        "rate": 0.0,
+        "ci95": [
+          0,
+          0.7934567085261071
+        ]
+      },
+      "fold_to_pot_bet": {
+        "successes": 0,
+        "opportunities": 1,
+        "rate": 0.0,
+        "ci95": [
+          0,
+          0.7934567085261071
+        ]
+      },
+      "bust_rate": {
+        "successes": 1,
+        "opportunities": 1,
+        "rate": 1.0,
+        "ci95": [
+          0.20654329147389294,
+          1
+        ]
+      },
+      "failure_rate": {
+        "successes": 0,
+        "opportunities": 5,
+        "rate": 0.0,
+        "ci95": [
+          0,
+          0.43449149475208104
+        ]
+      },
+      "name": "Spark"
+    },
+    "org_3814ae0e9e26": {
+      "submissions": [
+        "base-v0:infer_8cf6c1212241:v1"
+      ],
+      "counts": {
+        "games": 1,
+        "bust_games": 1,
+        "busts": 0,
+        "hands": 30,
+        "decisions": 69,
+        "failed": 0,
+        "vpip": 10,
+        "pfr": 4,
+        "pot_bet_opportunities": 3,
+        "pot_bet_folds": 3
+      },
+      "vpip": {
+        "successes": 10,
+        "opportunities": 30,
+        "rate": 0.3333333333333333,
+        "ci95": [
+          0.19230295526846194,
+          0.5122027418616973
+        ]
+      },
+      "pfr": {
+        "successes": 4,
+        "opportunities": 30,
+        "rate": 0.13333333333333333,
+        "ci95": [
+          0.05309569424218104,
+          0.2968168394441695
+        ]
+      },
+      "fold_to_shove": {
+        "successes": 0,
+        "opportunities": 0,
+        "rate": null,
+        "ci95": null
+      },
+      "fold_to_pot_bet": {
+        "successes": 3,
+        "opportunities": 3,
+        "rate": 1.0,
+        "ci95": [
+          0.43849391955098227,
+          1
+        ]
+      },
+      "bust_rate": {
+        "successes": 0,
+        "opportunities": 1,
+        "rate": 0.0,
+        "ci95": [
+          0,
+          0.7934567085261071
+        ]
+      },
+      "failure_rate": {
+        "successes": 0,
+        "opportunities": 69,
+        "rate": 0.0,
+        "ci95": [
+          0,
+          0.05273909414400562
+        ]
+      },
+      "name": "Friends"
+    },
+    "org_c179d172de12": {
+      "submissions": [
+        "base:infer_d73912d3eb97:v1"
+      ],
+      "counts": {
+        "games": 6,
+        "bust_games": 6,
+        "busts": 2,
+        "hands": 135,
+        "decisions": 196,
+        "failed": 4,
+        "shove_opportunities": 14,
+        "shove_folds": 5,
+        "pot_bet_opportunities": 55,
+        "pot_bet_folds": 32,
+        "vpip": 43,
+        "pfr": 21
+      },
+      "vpip": {
+        "successes": 43,
+        "opportunities": 135,
+        "rate": 0.31851851851851853,
+        "ci95": [
+          0.2458793853519376,
+          0.4012004523912173
+        ]
+      },
+      "pfr": {
+        "successes": 21,
+        "opportunities": 135,
+        "rate": 0.15555555555555556,
+        "ci95": [
+          0.10405019069443464,
+          0.22612174624665513
+        ]
+      },
+      "fold_to_shove": {
+        "successes": 5,
+        "opportunities": 14,
+        "rate": 0.35714285714285715,
+        "ci95": [
+          0.16344490737202735,
+          0.6123599531785959
+        ]
+      },
+      "fold_to_pot_bet": {
+        "successes": 32,
+        "opportunities": 55,
+        "rate": 0.5818181818181818,
+        "ci95": [
+          0.4503286833116465,
+          0.7026243295228107
+        ]
+      },
+      "bust_rate": {
+        "successes": 2,
+        "opportunities": 6,
+        "rate": 0.3333333333333333,
+        "ci95": [
+          0.09676933255921683,
+          0.7000116786584712
+        ]
+      },
+      "failure_rate": {
+        "successes": 4,
+        "opportunities": 196,
+        "rate": 0.02040816326530612,
+        "ci95": [
+          0.007964134352931328,
+          0.05129079555155302
+        ]
+      },
+      "name": "Martingale"
+    }
+  },
+  "games_seen": 9,
+  "skipped": {},
+  "notes": [
+    "95% Wilson intervals treat observations as independent; within-game correlation may widen uncertainty.",
+    "Unknown players and identities marked probe are excluded. No style is inferred without evidence.",
+    "Failed decisions are counted separately and excluded from strategic fold opportunities.",
+    "Probe identity flags require human review; styles are not classified automatically. These are early ladder observations, not forecasts of final tournament entries."
+  ],
+  "source": "https://www.pokerbots.ac/matches"
+}

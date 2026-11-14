@@ -6,3 +6,10 @@ __pycache__/
 uv.lock
 traces/
 harness/runs/
+data/
+out/**/*.jsonl
+out/*.jsonl
+out/pilot/
+out/smoke/
+out/profile/
+handoff/

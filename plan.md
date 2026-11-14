@@ -40,6 +40,27 @@ than base. The cleanup turn has its own 10,000-token cap; check that its updates
 
 ## Team and setup
 
+### Combined A/B review (after A commit `815c9bf`)
+
+- Local `poker-b` includes A's latest placement grader, game datasets and decide-fast plan, plus B's uncommitted
+  data/hint/scouting work. B's files are not yet on GitHub; use `poker/HANDOFF.md` and its transfer archive when
+  continuing on another machine.
+- Combined checks: 23 root tests passed; 106 harness tests passed, one skipped. A connected harness and the
+  400/100/200 game datasets exist. At the live check, base smoke `eval_992f2c5ead5b` was running and no training
+  job existed. Recheck live state before launching work; do not infer completion from this snapshot.
+- Before game training, add explicit train-dataset selection to `rl/train.py` (its prefix convention cannot
+  address `pokerbots-train-game`), report final rank/game metrics in the scorer, and measure whole-game token
+  budgets, grading timeouts and zero-reward frequency. The 24,576-token default is for single hands.
+- The house model's token-cap finding is observed; equivalent base/field failure rates remain hypotheses until
+  measured. Per-decision error rates and failed-game rates are different metrics.
+- B has 13,565 clean training labels and 1,609 validation labels, plus a tested per-decision hint builder.
+  They are preflop-heavy; validation has no postflop records. Real base train traces and a reviewed hinted-data
+  upload remain outstanding. Teacher source and Pluribus conversion are still missing.
+- Use confirmed managed GRPO/offline OPSD. Platform SFT support does not establish team eligibility; one_step
+  OPSD and raw token-logprob/custom-loss access also require confirmation. See `poker/CAPABILITIES.md`.
+- Prioritize a measured baseline and a small decide-fast training pilot. Do not delay the first training/eval
+  cycle for optional teacher, solver or probe work. Full execution order and completion gates: `poker/HANDOFF.md`.
+
 Two people. Each step below names its owner as A or B.
 
 | | A: infra and RL (name: ___) | B: data and scouting (name: ___) |

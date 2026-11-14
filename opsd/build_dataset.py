@@ -23,13 +23,16 @@ import argparse
 import json
 import random
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from ac2.runtime import FunctionCall, HintedTask, HintMutation, HintSelection, Item, Tool
 from ac2.sdk import Client
 from pydantic import TypeAdapter
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hint import HINT, SEPARATOR  # noqa: E402
+from poker.hints import HintBuilder  # noqa: E402
 
 ITEMS = TypeAdapter(list[Item])
 SUBMIT = "submit_action"
@@ -40,7 +43,7 @@ SCRATCHPAD = "update_scratchpad"
 TOOLS = [Tool.model_validate(tool).model_dump() for tool in json.loads((Path(__file__).parent / "tools.json").read_text())]
 
 
-def decision_tasks(trace: dict, hint: str, max_tokens: int) -> tuple[list[HintedTask], dict[str, int]]:
+def decision_tasks(trace: dict, hint: str | Callable, max_tokens: int) -> tuple[list[HintedTask], dict[str, int]]:
     """One task per clean policy decision in a trace, with counts of what was kept and why the rest was skipped."""
     spans = sorted(
         (s for s in trace["spans"] if s["name"] == "get_completion" and s["status"] == "OK"),
@@ -61,13 +64,14 @@ def decision_tasks(trace: dict, hint: str, max_tokens: int) -> tuple[list[Hinted
         if int(span.get("tokens_out") or 0) >= max_tokens:
             stats["truncated"] += 1
             continue
+        decision_hint = hint(prompt) if callable(hint) else hint
         tasks.append(
             HintedTask(
                 input=prompt + reply,
                 env_params={"tools": TOOLS, "source_trace": trace["trace_id"]},
                 opsd_hint_selections=[
                     HintSelection(
-                        hint=hint,
+                        hint=decision_hint,
                         rollout_prefix_len=len(prompt),
                         mutation=HintMutation(item_boundary=1, action="append_to_previous_item", separator=SEPARATOR),
                     )
@@ -86,7 +90,14 @@ def main() -> None:
     parser.add_argument("--max-tokens", type=int, default=5_000, help="replies this long count as truncated (the event's cap)")
     parser.add_argument("--traces", type=Path, help="reuse a downloaded trace export")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--records", type=Path, help="cleaned train.jsonl labels; never test or validation records")
+    parser.add_argument("--equity-samples", type=int, default=64, help="sampled tight-range equity per decision; 0 disables")
+    parser.add_argument("--generic-hint", action="store_true", help="use the starter global hint instead of per-decision hints")
+    parser.add_argument("--hint-report", type=Path, help="write hints for 20 deterministic random decisions for review")
     args = parser.parse_args()
+    if args.equity_samples < 0:
+        parser.error("--equity-samples must be nonnegative")
+    hint_builder = HINT if args.generic_hint else HintBuilder(args.records, equity_samples=args.equity_samples)
 
     path = args.traces or Path(f"traces/{args.eval}.jsonl")
     if not path.exists():
@@ -95,11 +106,18 @@ def main() -> None:
     tasks, totals = [], {"decisions": 0, "kept": 0, "cleanup": 0, "format": 0, "truncated": 0}
     with path.open() as lines:
         for line in lines:
-            built, stats = decision_tasks(json.loads(line), HINT, args.max_tokens)
+            built, stats = decision_tasks(json.loads(line), hint_builder, args.max_tokens)
             tasks.extend(built)
             totals = {k: totals[k] + stats[k] for k in totals}
     random.Random(0).shuffle(tasks)
     print(json.dumps(totals | {"tasks": len(tasks)}))
+    if args.hint_report:
+        args.hint_report.parent.mkdir(parents=True, exist_ok=True)
+        sample = random.Random(0).sample(tasks, min(20, len(tasks)))
+        args.hint_report.write_text(json.dumps([
+            {"source_trace": task.env_params["source_trace"], "hint": task.opsd_hint_selections[0].hint}
+            for task in sample
+        ], indent=2), encoding="utf-8")
     if args.dry_run or not tasks:
         return
     client = Client(project=args.project)

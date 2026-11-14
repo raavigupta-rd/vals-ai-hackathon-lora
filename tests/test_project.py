@@ -72,6 +72,27 @@ def test_opsd_builder_makes_one_hinted_task_per_clean_decision() -> None:
     assert "hint" not in json.dumps([i.model_dump(mode="json") for i in task.input])  # only the teacher sees it
 
 
+def test_opsd_dynamic_hint_sees_prompt_only_and_preserves_base_reply() -> None:
+    prompt = [Message(role="system", content="rules"), Message(role="user", content="public decision state")]
+    reply = [Reasoning(content="private sampled reasoning"),
+             FunctionCall(call_id="c", name="submit_action", arguments='{"action":"fold"}')]
+    seen = []
+
+    def make_hint(items):
+        seen.extend(items)
+        return "decision-specific teacher hint"
+
+    span = {"name": "get_completion", "status": "OK", "start_time": 0,
+            "input": json.dumps([i.model_dump(mode="json") for i in prompt]),
+            "output": json.dumps([i.model_dump(mode="json") for i in reply]), "tokens_out": 50}
+    (task,), stats = build_dataset.decision_tasks({"trace_id": "train-only", "spans": [span]}, make_hint, 5000)
+    assert seen == prompt
+    assert task.input == prompt + reply
+    assert task.opsd_hint_selections[0].hint == "decision-specific teacher hint"
+    assert stats["kept"] == 1
+    assert "decision-specific teacher hint" not in json.dumps([i.model_dump(mode="json") for i in task.input])
+
+
 def test_training_configs_send_only_explicit_settings() -> None:
     """Unset flags are not sent, so AC2 keeps its defaults; a flag that is set shows up in the configuration."""
     spec = importlib.util.spec_from_file_location("rl_train", ROOT / "rl" / "train.py")

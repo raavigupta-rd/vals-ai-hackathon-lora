@@ -1,10 +1,42 @@
-# Poker data plan
+# Poker plan
 
-Vals Hackathon, poker track. Written Sat Nov 14, 1:45 PM, revised against the starter README the same day.
-Submissions close Sun Nov 15, 2 PM.
+Vals Hackathon, poker track. Written Sat Nov 14, 1:45 PM, revised through the afternoon. Submissions close Sun
+Nov 15, 2 PM; the Official Tournament runs after that on every team's last submission.
 
-This plan covers data only. Training, RL, and deployment get their own plans, but this one has to feed the two
-training paths the starter actually supports (GRPO and offline OPSD), so it names them where it matters.
+This started as a data plan and now covers the whole event. Data work never stops: it feeds training the whole
+time. Most of the remaining time goes to the training loop.
+
+## Phases
+
+| Phase | What | Status |
+|---|---|---|
+| 1. Setup | Harness, connector, starter datasets, game datasets (`pokerbots-*-game`) | Done Sat 3 PM |
+| 2. Baseline | Smoke evals, `base` deployment, base evals, base in the arena | In progress |
+| 3. First training: decide fast | GRPO on single hands to cut token-cap failures (see "Finding: the cap" below) | Next |
+| 4. Training loop | Placement-reward games, OPSD hints, simulated field. Train, eval against base, find leaks, repeat. | Sat night to Sun 12:30 PM |
+| 5. Final entry | Pick, check, submit by 1:15 PM (step 9f) | Sun |
+
+## Finding: the token cap is the first leak
+
+In the first smoke games (Sat 3 PM), the house model (`ac-vals-model`) lost 18 of 68 decisions to invalid moves, and
+17 of those were replies cut off at the 5,000-token cap. Its reasoning tails show long placement math ("expected
+rank 3.0 to 3.5 if I fold...") that never reaches a `submit_action` call. Base Qwen has the same system prompt, so
+it likely does the same.
+
+- For us: the cheapest large gain is reaching a valid action in fewer tokens. The event has no time limit; only tokens matter.
+- For the field: entries built on base probably fail 20 to 30% of decisions the same way, and a forced check or fold gives up the pot. Aggression against them pays. B checks this in replays (step 8).
+- For training: house opponents check or fold about a quarter of the time for no reason. Training only against them can teach too much bluffing, which is another reason for the simulated field (9c).
+
+### Phase 3 plan: decide fast (owner: A for GRPO, B for OPSD)
+
+1. Measure base first on `pokerbots-eval`: cut-off rate, tokens per decision, BB per hand.
+2. GRPO on `pokerbots-train` (single hands). A cut-off already scores 0, so GRPO pushes toward replies that finish, with no new code. Single hands are short, so the signal comes fast.
+3. Watch `format_error_hands` and BB per hand at each in-run eval. Stop if BB per hand falls while errors fall.
+4. In parallel, B builds an OPSD set from base's decisions that finished under about 2,500 tokens, with a "think briefly: strength, position, price, then act" hint.
+5. No length penalty in the reward yet. Add one only if cut-offs stay high after the first run.
+
+Targets: cut-off rate under 2%, median reply about 1,500 tokens, 99th percentile under 4,000, BB per hand not worse
+than base. The cleanup turn has its own 10,000-token cap; check that its updates finish too.
 
 ## Team and setup
 

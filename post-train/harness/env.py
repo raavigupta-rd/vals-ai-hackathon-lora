@@ -19,6 +19,7 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Annotated, Literal
 
 from tinker_cookbook.renderers import Renderer, get_text_content
@@ -99,15 +100,21 @@ class CPTools:
                 "note": "This submission did not compile, so it will not be graded.",
             }))
         self.last_compiled_code = code
+        # Judge samples exactly like hidden tests: inside the sandbox, with the problem's checker if any.
+        checker = sandbox.tests_dir() / self.p["checker"] if self.p.get("checker") else None
+        runs = await sandbox.run_tests(comp.binary, sample_files(self.p), self.p["time_limit"],
+                                       self.p["memory_limit"], checker=checker, keep_stdout=True)
         results = []
-        for i, (inp, exp) in enumerate(self.p["samples"], 1):
-            r = await sandbox.run_stdin(comp.binary, inp, self.p["time_limit"], self.p["memory_limit"])
-            ok = r.status == "OK" and _sample_ok(self.p, inp, exp, r.stdout)
-            entry = {"sample": i, "verdict": "AC" if ok else ("WA" if r.status == "OK" else r.status),
-                     "time_seconds": r.time_s}
+        for i, ((_, exp), r) in enumerate(zip(self.p["samples"], runs), 1):
+            ok = bool(r.passed)
+            entry = {"sample": i, "verdict": "AC" if ok else r.status, "time_seconds": r.time_s}
             if not ok:
-                entry.update({"your_output": _trunc(r.stdout, 800), "expected_output": _trunc(exp, 800),
-                              "stderr": _trunc(r.stderr, 400)})
+                entry.update({"your_output": _trunc(r.stdout, 800), "stderr": _trunc(r.stderr, 400)})
+                if checker is not None:
+                    entry["note"] = "Several answers may be valid; a checker rejected your output."
+                    entry["example_correct_output"] = _trunc(exp, 800)
+                else:
+                    entry["expected_output"] = _trunc(exp, 800)
             results.append(entry)
         passed = sum(e["verdict"] == "AC" for e in results)
         return simple_tool_result(json.dumps({
@@ -116,12 +123,20 @@ class CPTools:
         }))
 
 
-def _sample_ok(problem: dict, inp: str, exp: str, got: str) -> bool:
-    # Problems with several valid answers have a checker; for samples we fall back to exact tokens,
-    # and accept anything when a checker exists (the real grader's behaviour here is unknown).
-    if problem.get("checker"):
-        return True if got.strip() else False
-    return sandbox.outputs_match(got, exp)
+def sample_files(problem: dict) -> list[tuple[Path, Path]]:
+    """Materialize the problem's samples as files in the sandbox tests dir (idempotent, race-safe)."""
+    d = sandbox.tests_dir() / problem["id"]
+    d.mkdir(parents=True, exist_ok=True)
+    pairs = []
+    for i, (inp, exp) in enumerate(problem["samples"], 1):
+        fi, fo = d / f"sample_{i}.in", d / f"sample_{i}.out"
+        for f, text in ((fi, inp), (fo, exp)):
+            if not f.exists() or f.read_text() != text:
+                tmp = f.with_suffix(f.suffix + f".{os.getpid()}.{id(problem)}.tmp")
+                tmp.write_text(text)
+                os.replace(tmp, f)
+        pairs.append((fi, fo))
+    return pairs
 
 
 async def grade(problem: dict, code: str | None, score_mode: Literal["subtask", "fraction"] = "subtask") -> dict:

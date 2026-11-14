@@ -31,7 +31,12 @@ Extension points (search for "EXTENSION POINT")
 3. `artifacts`: anything you add to the reply is stored with each score row on AC2, for analysis.
 Keep failures at 0 and real hands above it, or a model can learn that failing pays.
 
-This grader scores chips only. On single-hand tasks the scratchpad starts blank and its after-hand update is never
+With `grader_params: {"reward": "placement"}` it scores the seat's final place in the game instead (1st = 11,
+last = 1), using the event's ranking. Use it on multi-hand tasks (`total_hands` > 1, `reset_stacks: false`), where
+busting can happen; on a single hand it is a coarse chip ranking. Placement uses the chips actually won, so it keeps
+the card luck that EV removes.
+
+The default reward scores chips only. On single-hand tasks the scratchpad starts blank and its after-hand update is never
 read, so nothing here rewards or exercises scratchpad use; how to train that is up to you.
 """
 
@@ -40,6 +45,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from typing import Any
+
+from .game import placements
 
 REWARD_OFFSET = 6.0  # shifts the clipped reward [-5, +5] to [1, 11]
 REWARD_FLOOR, REWARD_CEILING = -5.0, 5.0
@@ -50,7 +57,10 @@ MAX_SCORE_BYTES = 1 << 20  # AC2 rejects collect_score replies over 1 MiB
 
 # EXTENSION POINT 2: the `grader_params` keys your reward accepts. Unknown keys fail the grading, so a typo in a
 # dataset can't silently change the reward.
-GRADER_PARAMS: frozenset[str] = frozenset()
+GRADER_PARAMS: frozenset[str] = frozenset({"reward"})
+# `grader_params.reward`: "ev" (default) scores chips in BB; "placement" scores the policy seat's final place in the
+# game (event ranking: survivors by chips above busted seats, later busts above earlier ones), 1st = +5, last = -5.
+REWARDS = ("ev", "placement")
 
 
 class GradingError(ValueError):
@@ -68,6 +78,8 @@ class SeatResult:
     format_errors: int
     folded: bool
     hands: int
+    place: int  # best final place among the policy seats, 1 = first (event ranking)
+    seats: int  # seats at the table
 
 
 def check_grader_params(grader_params: dict[str, Any] | None) -> dict[str, Any]:
@@ -76,6 +88,8 @@ def check_grader_params(grader_params: dict[str, Any] | None) -> dict[str, Any]:
     unknown = set(params) - GRADER_PARAMS
     if unknown:
         raise GradingError(f"unknown grader_params: {sorted(unknown)}")
+    if params.get("reward", "ev") not in REWARDS:
+        raise GradingError(f"unknown reward {params['reward']!r}; use one of {list(REWARDS)}")
     return params
 
 
@@ -90,6 +104,7 @@ def seat_result(log: dict[str, Any], policy_seats: list[str]) -> SeatResult:
     seats = [(hand, seat) for hand in log["hands"] for seat in policy if seat in hand["starting_state"]]
     actions = [a for hand in log["hands"] for a in hand["actions"] if a["player"] in policy]
     labels = [hand.get("ev", {}).get(seat) for hand, seat in seats]
+    places = placements(log, "elimination")
     if labels and all(label is not None for label in labels):
         ev_bb = sum(label["ev_bb"] for label in labels)
         realized_bb = sum(label["realized_bb"] for label in labels)
@@ -105,6 +120,8 @@ def seat_result(log: dict[str, Any], policy_seats: list[str]) -> SeatResult:
         format_errors=sum(bool(a["model_response"].get("format_error")) for a in actions),
         folded=any(a["action"]["type"] == "fold" for a in actions),
         hands=len(log["hands"]),
+        place=min(places[seat] for seat in policy),
+        seats=len(places),
     )
 
 
@@ -114,7 +131,8 @@ def hand_reward(result: SeatResult, params: dict[str, Any]) -> float:
     The default is EV in units of 1 BB, clipped to +-100 BB. `result` has everything the log says about the trained
     seat; read more from the log in `seat_result` if you need it. `params` is the task's checked `grader_params`.
     """
-    del params  # the default reward takes no parameters
+    if params.get("reward") == "placement":  # 1st place = +5, last = -5, evenly spaced
+        return REWARD_CEILING - (REWARD_CEILING - REWARD_FLOOR) * (result.place - 1) / max(1, result.seats - 1)
     return max(-EV_CLIP_BB, min(EV_CLIP_BB, result.ev_bb)) / EV_UNIT_BB
 
 
@@ -145,6 +163,7 @@ def grade_log(
             "policy_format_errors": result.format_errors,
             "folded": result.folded,
             "hands": result.hands,
+            "place": result.place,
         },
     }
 

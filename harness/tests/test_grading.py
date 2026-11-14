@@ -180,3 +180,51 @@ def test_the_extension_points_change_the_reward_but_failures_stay_zero(monkeypat
     broken = log_for([action("seat0", "call", format_error=True)], {"seat0": 208, "seat1": 192}, ev=ev)
     assert grading.grade_log(broken, ["seat0"], params)["score"] == FAILURE_SCORE
 
+
+
+def game_log(final: dict, eliminated: dict | None = None, error_seat: str | None = None) -> dict:
+    """A multi-seat game for placement tests: every seat acts once; `eliminated` maps a seat to the hand it busted on."""
+    names = list(final)
+    actions = [action(s, "call", format_error=(s == error_seat)) for s in names]
+    return {
+        "session_info": {"big_blind": 2, "player_names": names, "starting_stacks": [200] * len(names)},
+        "final_stacks": final,
+        "eliminated_on_hand": eliminated or {},
+        "hands": [hand(dict.fromkeys(names), actions)],
+    }
+
+
+PLACEMENT = {"reward": "placement"}
+
+
+def test_placement_reward_scores_first_place_highest_and_last_lowest() -> None:
+    final = {"seat0": 500, "seat1": 300, "seat2": 200, "seat3": 100, "seat4": 0, "seat5": 0}
+    log = game_log(final, eliminated={"seat4": 20, "seat5": 10})
+    params = check_grader_params(PLACEMENT)
+    scores = [grade_log(log, [s], params)["score"] for s in final]
+    assert scores[0] == 11.0 and scores[-1] == 1.0
+    assert scores == sorted(scores, reverse=True) and len(set(scores)) == 6
+    assert grade_log(log, ["seat0"], params)["artifacts"]["place"] == 1
+
+
+def test_placement_reward_ranks_a_short_survivor_above_a_late_bust() -> None:
+    """Busting is the worst outcome: a survivor with 1 chip beats a seat that busted on the last hand."""
+    final = {"seat0": 1, "seat1": 0, "seat2": 599}
+    log = game_log(final, eliminated={"seat1": 30})
+    params = check_grader_params(PLACEMENT)
+    assert grade_log(log, ["seat0"], params)["score"] > grade_log(log, ["seat1"], params)["score"]
+
+
+def test_placement_reward_keeps_format_errors_at_zero() -> None:
+    final = {"seat0": 600, "seat1": 0, "seat2": 0}
+    log = game_log(final, eliminated={"seat1": 5, "seat2": 6}, error_seat="seat0")
+    assert grade_log(log, ["seat0"], check_grader_params(PLACEMENT))["score"] == FAILURE_SCORE
+
+
+def test_default_reward_is_unchanged_and_unknown_reward_names_are_rejected() -> None:
+    final = {"seat0": 204, "seat1": 196}
+    log = game_log(final)
+    for params in ({}, {"reward": "ev"}):
+        assert grade_log(log, ["seat0"], check_grader_params(params))["score"] == pytest.approx(REWARD_OFFSET + 2.0)
+    with pytest.raises(GradingError):
+        check_grader_params({"reward": "chips"})

@@ -62,11 +62,12 @@ class CompileResult:
 
 @dataclass
 class RunResult:
-    status: str  # OK | RE | TLE | MLE | OLE
-    stdout: str
+    status: str  # OK | WA | RE | TLE | MLE | OLE
+    stdout: str  # truncated to ~4 KB (only when requested)
     stderr: str
     exit_code: int
     time_s: float
+    passed: bool | None = None  # None for plain stdin runs
 
 
 async def _exec(args: list[str], timeout: float) -> tuple[int, str, str]:
@@ -112,33 +113,42 @@ def _to_container(p: Path) -> str:
 async def _run_spec(spec: dict, n: int) -> list[RunResult]:
     run_id = uuid.uuid4().hex[:12]
     spec["out_dir"] = f"/rw/out/{run_id}"
-    timeout = n * (spec["time_limit"] * 2 + 2) + 30
+    timeout = n * (spec["time_limit"] * 2 + 3) + 30
     async with _sem():
         rc, out, err = await _exec(["python3", "/work/runner.py", json.dumps(spec)], timeout)
-    out_dir = WORK_DIR / "rw" / "out" / run_id
-    try:
-        if rc != 0:
-            return [RunResult("RE", "", f"sandbox error: {err[-500:]}", rc, 0.0)]
-        results = []
-        for r in json.loads(out):
-            p = out_dir / Path(r["stdout_path"]).name
-            stdout = p.read_text(errors="replace") if p.exists() else ""
-            results.append(RunResult(r["status"], stdout, r["stderr"], r["exit_code"], r["time"]))
-        return results
-    finally:
-        shutil.rmtree(out_dir, ignore_errors=True)
+    shutil.rmtree(WORK_DIR / "rw" / "out" / run_id, ignore_errors=True)
+    if rc != 0:
+        return [RunResult("RE", "", f"sandbox error: {err[-500:]}", rc, 0.0, False)]
+    return [RunResult(r["status"], r.get("stdout", ""), r["stderr"], r["exit_code"], r["time"], r["passed"])
+            for r in json.loads(out)]
 
 
 async def run_stdin(binary: str, stdin: str, time_limit: float, mem_bytes: int = DEFAULT_MEM) -> RunResult:
-    spec = {"binary": binary, "inputs": None, "stdin": stdin, "time_limit": time_limit, "mem_bytes": mem_bytes}
-    return (await _run_spec(spec, 1))[0]
+    in_dir = WORK_DIR / "rw" / "in"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    name = uuid.uuid4().hex[:12] + ".in"
+    (in_dir / name).write_text(stdin)
+    spec = {"binary": binary, "stdin_file": f"/rw/in/{name}", "time_limit": time_limit, "mem_bytes": mem_bytes}
+    try:
+        return (await _run_spec(spec, 1))[0]
+    finally:
+        (in_dir / name).unlink(missing_ok=True)
 
 
-async def run_files(binary: str, input_files: list[Path], time_limit: float, mem_bytes: int = DEFAULT_MEM,
-                    stop_on_fail: bool = False) -> list[RunResult]:
-    spec = {"binary": binary, "inputs": [_to_container(p) for p in input_files], "stdin": None,
-            "time_limit": time_limit, "mem_bytes": mem_bytes, "stop_on_fail": stop_on_fail}
-    return await _run_spec(spec, len(input_files))
+async def run_tests(binary: str, tests: list[tuple[Path, Path]], time_limit: float, mem_bytes: int = DEFAULT_MEM,
+                    checker: Path | None = None, stop_on_fail: bool = False, keep_stdout: bool = False) -> list[RunResult]:
+    """Grade a compiled binary on (input_file, expected_file) pairs that live under tests_dir()."""
+    spec = {"binary": binary, "tests": [{"in": _to_container(i), "out": _to_container(o)} for i, o in tests],
+            "checker": _to_container(checker) if checker else None, "time_limit": time_limit,
+            "mem_bytes": mem_bytes, "stop_on_fail": stop_on_fail, "keep_stdout": keep_stdout}
+    return await _run_spec(spec, len(tests))
+
+
+def tests_dir() -> Path:
+    """Host dir for test files; visible read-only to the sandbox."""
+    d = WORK_DIR / "ro" / "tests"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def _tok_eq(a: str, b: str) -> bool:
@@ -154,12 +164,6 @@ def _tok_eq(a: str, b: str) -> bool:
 
 
 def outputs_match(got: str, expected: str) -> bool:
+    """Whitespace-insensitive token compare with 1e-6 tolerance for floats (same as the runner)."""
     g, e = got.split(), expected.split()
     return len(g) == len(e) and all(_tok_eq(x, y) for x, y in zip(g, e))
-
-
-def tests_dir() -> Path:
-    """Host dir for test files; visible read-only to the sandbox."""
-    d = WORK_DIR / "ro" / "tests"
-    d.mkdir(parents=True, exist_ok=True)
-    return d

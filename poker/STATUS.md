@@ -1,5 +1,33 @@
 # Person B execution status
 
+## Combined integration execution — Nov 14
+
+- Combined A/B implementation published as `593a185` to `origin/poker-b`; archive extracted to ignored staging,
+  not reapplied to the shared workspace. Existing changes were preserved.
+- Base smoke `eval_992f2c5ead5b` succeeded: four hands, eight policy decisions, zero decision/cleanup failures.
+  Output-token median 620.5, p99 864.79, max 865; cleanup max 955. `out/base_smoke_quality.json` records the audit.
+  The observed single-hand all-request token upper bound was 15,668; it deliberately overcounts repeated
+  prompts and is not the trainer's exact transcript length. Long-game limits remain unmeasured.
+- Separate baseline jobs: held-out `eval_9e50f4198211` and train-only `eval_ce4924764f47`, both concurrency 8 and
+  grading timeout 900s. Existing A select/game evals were preserved. No existing dataset uploads were rerun.
+- The sole GRPO pilot is `train_b2dda65e96c4`: four single-hand steps, 4 tasks x 4 attempts, checkpoints every 2,
+  concurrency 4, six estimated GPUs, no in-run eval, 24,576/32,768 response/context budgets and 1,200s grading timeout.
+  These single-hand limits are not approved for placement-game training. See `poker/run_ledger.json` before any
+  further launch. The base deployment is preserved; no arena submission or deployment deletion was performed.
+- Reviewed gaps fixed locally: explicit train dataset; configurable eval grading timeout; game/hand denominators,
+  mean final place, failure rates and paired game/place reporting; existing game uploads now refuse an occupied
+  name. OPSD checks train-eval provenance and task membership, event tools, completed spans, token counts,
+  truncation, JSON arguments and prompt legality. A dedicated decide-fast hint and review-hash upload gate exist.
+- Added loaded grader fingerprint in health/scores and bust-status artifacts. **The live remote process has not
+  been restarted**, so those additions are not yet active. Old smoke scores prove placement-aware grading is loaded,
+  but not the exact source hash. No local harness/connector process was found. Ask the harness owner for its host
+  and perform a coordinated idle-only update before placement-game training.
+- Integration checks: 33 root tests passed; 26 grading/server tests passed after telemetry-only edits. Earlier
+  full harness run passed 106 with one skip. A full base-trace 20-hint review/upload and checkpoint comparison
+  remain pending. Teacher/Pluribus source and optional solver/probe work are explicitly deferred.
+
+The sections below retain the initial B milestone for context.
+
 Work is on `poker-b`, branched from `poker`, with no arena submission or training launch.
 
 Integration update: pulled Person A's work through `815c9bf` into this branch with a fast-forward. Local B changes

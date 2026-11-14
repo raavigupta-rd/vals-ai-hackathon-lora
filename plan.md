@@ -11,8 +11,8 @@ time. Most of the remaining time goes to the training loop.
 | Phase | What | Status |
 |---|---|---|
 | 1. Setup | Harness, connector, starter datasets, game datasets (`pokerbots-*-game`) | Done Sat 3 PM |
-| 2. Baseline | Smoke evals, `base` deployment, base evals, base in the arena | In progress |
-| 3. First training: decide fast | GRPO on single hands to cut token-cap failures (see "Finding: the cap" below) | Next |
+| 2. Baseline | Smoke evals, `base` deployment, separate held-out/train evals | Base smoke succeeded; held-out `eval_9e50f4198211`, train `eval_ce4924764f47` running |
+| 3. First training: decide fast | Bounded single-hand GRPO pilot | `train_b2dda65e96c4`, four steps, 4 x 4 attempts, no in-run eval; sole training slot reserved |
 | 4. Training loop | Placement-reward games, OPSD hints, simulated field. Train, eval against base, find leaks, repeat. | Sat night to Sun 12:30 PM |
 | 5. Final entry | Pick, check, submit by 1:15 PM (step 9f) | Sun |
 
@@ -20,12 +20,14 @@ time. Most of the remaining time goes to the training loop.
 
 In the first smoke games (Sat 3 PM), the house model (`ac-vals-model`) lost 18 of 68 decisions to invalid moves, and
 17 of those were replies cut off at the 5,000-token cap. Its reasoning tails show long placement math ("expected
-rank 3.0 to 3.5 if I fold...") that never reaches a `submit_action` call. Base Qwen has the same system prompt, so
-it likely does the same.
+rank 3.0 to 3.5 if I fold...") that never reaches a `submit_action` call. This is evidence about the house model,
+not the base model or the field. Base smoke later completed 8 policy decisions with zero cutoffs, median 620.5
+output tokens and maximum 865. Full base measurements remain pending; early successful tasks can be biased.
 
 - For us: the cheapest large gain is reaching a valid action in fewer tokens. The event has no time limit; only tokens matter.
-- For the field: entries built on base probably fail 20 to 30% of decisions the same way, and a forced check or fold gives up the pot. Aggression against them pays. B checks this in replays (step 8).
-- For training: house opponents check or fold about a quarter of the time for no reason. Training only against them can teach too much bluffing, which is another reason for the simulated field (9c).
+- For the field: measure each entry's failure rate rather than extrapolating 20–30% from the house smoke sample.
+- For training: flaky house opponents can teach too much bluffing. Compare poker results and format validity,
+  then validate against broader scripted/real opponents before advancing.
 
 ### Phase 3 plan: decide fast (owner: A for GRPO, B for OPSD)
 
@@ -43,8 +45,8 @@ than base. The cleanup turn has its own 10,000-token cap; check that its updates
 ### Combined A/B review (after A commit `815c9bf`)
 
 - Local `poker-b` includes A's latest placement grader, game datasets and decide-fast plan, plus B's uncommitted
-  data/hint/scouting work. B's files are not yet on GitHub; use `poker/HANDOFF.md` and its transfer archive when
-  continuing on another machine.
+  data/hint/scouting work. The combined implementation is now committed and pushed as `593a185` on `poker-b`.
+  Use `poker/run_ledger.json` for live run ownership and `poker/STATUS.md` for the latest execution results.
 - Combined checks: 23 root tests passed; 106 harness tests passed, one skipped. A connected harness and the
   400/100/200 game datasets exist. At the live check, base smoke `eval_992f2c5ead5b` was running and no training
   job existed. Recheck live state before launching work; do not infer completion from this snapshot.

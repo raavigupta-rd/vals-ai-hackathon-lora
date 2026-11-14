@@ -1,0 +1,161 @@
+{
+  "project": "vals-hackathon",
+  "project_id": "prj_200dcc41ef41",
+  "harness": {
+    "local_commit": "815c9bf",
+    "remote_revision": null,
+    "evidence": "Smoke score artifacts include place; placement-aware grader is loaded, exact process source hash remains unverified.",
+    "restart": "No restart performed; active evals must finish first."
+  },
+  "deployment": {
+    "base": "infer_d3d2b6b92171",
+    "preserve": true
+  },
+  "runs": [
+    {
+      "id": "eval_992f2c5ead5b",
+      "kind": "base_smoke",
+      "dataset": "pokerbots-smoke",
+      "status": "succeeded",
+      "games": 4,
+      "policy_format_error_games": 0,
+      "ev_bb_per_hand": -1.875
+    },
+    {
+      "id": "eval_9f9ec615687b",
+      "kind": "base_select",
+      "dataset": "pokerbots-select",
+      "status": "running",
+      "created_by": "existing A work",
+      "grading_timeout_seconds": 900,
+      "max_parallel": 32
+    },
+    {
+      "id": "eval_e51ea5b4466a",
+      "kind": "base_game_eval",
+      "dataset": "pokerbots-eval-game",
+      "status": "running",
+      "created_by": "existing A work",
+      "grading_timeout_seconds": 900,
+      "max_parallel": 32
+    },
+    {
+      "id": "eval_ce4924764f47",
+      "kind": "poker-base-train-20261114",
+      "status": "pending",
+      "datasets": [
+        {
+          "dataset": "pokerbots-train",
+          "task_manifest_uri": "s3://appliedcompute/ac2/dataset-manifests/org_bd0b476825f0/prj_200dcc41ef41/ds_9a85f7a448c8/ba35921ff3dc708e53d5828b55cb3163c1fe47809e2077fbd8f9b843a2aa817a.jsonl.gz"
+        }
+      ],
+      "project_version_id": "pver_27a0d106e2f6",
+      "created_at": "2026-11-14T23:33:59.500559Z",
+      "observed_at": "2026-11-14T23:34:00.761321+00:00",
+      "tags": {
+        "dataset": "pokerbots-train",
+        "benchmark": "pokerbots",
+        "ledger_key": "poker-base-train-20261114",
+        "seat_model": "vals-hackathon/base",
+        "source_dataset": "pokerbots-train"
+      },
+      "settings": {
+        "max_parallel": 8,
+        "grading_timeout_seconds": 900.0
+      }
+    },
+    {
+      "id": "eval_9e50f4198211",
+      "kind": "base_held_out",
+      "status": "running",
+      "datasets": [
+        {
+          "dataset": "pokerbots-eval",
+          "task_manifest_uri": "s3://appliedcompute/ac2/dataset-manifests/org_bd0b476825f0/prj_200dcc41ef41/ds_4d96ffe96abd/1ed0236fdeb4a4422cb67f92113fbc05455e8a0576bcb003d5d4097c10055e50.jsonl.gz"
+        }
+      ],
+      "project_version_id": "pver_27a0d106e2f6",
+      "created_at": "2026-11-14T23:31:33.006913Z",
+      "observed_at": "2026-11-14T23:37:09.218055+00:00",
+      "tags": {
+        "dataset": "pokerbots-eval",
+        "benchmark": "pokerbots",
+        "seat_model": "vals-hackathon/base"
+      }
+    },
+    {
+      "kind": "single_hand_grpo_pilot",
+      "name": "poker-fast-grpo-pilot-20261114",
+      "dataset": "pokerbots-train",
+      "settings": {
+        "model": "Qwen/Qwen3.6-35B-A3B",
+        "name": "poker-fast-grpo-pilot-20261114",
+        "description": "GRPO on pokerbots-train through the self-hosted poker harness, harness-side grading.",
+        "tags": {
+          "benchmark": "pokerbots",
+          "method": "grpo",
+          "dataset": "pokerbots-train",
+          "experiment": "decide-fast-single-hand-pilot"
+        },
+        "experiment_cfg": {
+          "method": {
+            "type": "rl",
+            "advantage": "dr-grpo",
+            "use_kl_loss": true,
+            "kl_loss_coef": 0.01
+          },
+          "step": {
+            "num_train_steps": 4,
+            "problem_batch_size": 4,
+            "samples_per_problem": 4,
+            "checkpoint_interval": 2
+          },
+          "tasks": {
+            "datasets": [
+              {
+                "ac2_dataset_name": "pokerbots-train"
+              }
+            ],
+            "custom_harness": {
+              "grading_timeout_seconds": 1200.0
+            },
+            "apply_chat_template_kwargs": {
+              "enable_thinking": true
+            }
+          },
+          "rollout": {
+            "n_inference_replicas": 1,
+            "max_response_len": 24576,
+            "max_total_len": 32768,
+            "global_sampling_concurrency": 4
+          },
+          "eval": {
+            "mode": "off"
+          }
+        },
+        "internal_cfg": {
+          "launch": {
+            "tensorboard_enabled": true
+          }
+        }
+      },
+      "submitted_at": "2026-11-14T23:38:24.843106+00:00",
+      "grader_revision": null,
+      "grader_evidence": "Completed base smoke has place artifacts and zero policy format errors; exact loaded hash unverified.",
+      "gpu_estimate": 6,
+      "long_game_training": false,
+      "id": "train_b2dda65e96c4",
+      "status": "queued"
+    }
+  ],
+  "training_slot": {
+    "owner": "integration session",
+    "train_id": "train_b2dda65e96c4",
+    "rule": "Do not launch another training job until terminal."
+  },
+  "publication": {
+    "combined_implementation": "593a185",
+    "branch": "poker-b",
+    "remote": "origin"
+  }
+}

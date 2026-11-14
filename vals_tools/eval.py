@@ -25,6 +25,7 @@ def eval_config(
     deployment: str | None = None,
     api_type: str = "responses",
     max_parallel: int = 32,
+    grading_timeout: float = GRADING_TIMEOUT_S,
 ) -> EvalConfig:
     if (model is None) == (deployment is None):
         raise ValueError("pass exactly one of model or deployment")
@@ -34,7 +35,7 @@ def eval_config(
         else ModelConfiguration(model=model, api_type=api_type)
     )
     return EvalConfig(
-        custom_harness=CustomHarnessConfig(model=seat, grading_timeout_seconds=GRADING_TIMEOUT_S),
+        custom_harness=CustomHarnessConfig(model=seat, grading_timeout_seconds=grading_timeout),
         dataset=dataset,
         name=f"pokerbots-eval-{dataset}",
         description=f"Poker hands on {dataset}, harness-side grading.",
@@ -55,10 +56,12 @@ def main() -> None:
     parser.add_argument("--api-type", default="responses", help="for --model: responses or completions")
     parser.add_argument("--max-parallel", type=int, default=32, help="concurrent hands on your harness")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--grading-timeout", type=float, default=GRADING_TIMEOUT_S)
     args = parser.parse_args()
 
     config = eval_config(
-        args.dataset, args.model, args.deployment, args.api_type, args.max_parallel
+        args.dataset, args.model, args.deployment, args.api_type, args.max_parallel,
+        args.grading_timeout,
     )
     if args.dry_run:
         print(config)

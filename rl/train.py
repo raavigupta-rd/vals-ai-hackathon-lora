@@ -47,6 +47,7 @@ def _set(**values: Any) -> dict[str, Any]:
 
 
 def run_config(args: argparse.Namespace, name: str) -> RunConfig:
+    train_dataset = args.train_dataset or f"{args.prefix}-train"
     harness = TrainingCustomHarnessConfig(**_set(grading_timeout_seconds=args.grading_timeout))
     eval_cfg = (
         EvalConfig(mode="off")
@@ -67,8 +68,8 @@ def run_config(args: argparse.Namespace, name: str) -> RunConfig:
     return RunConfig(
         model=args.model,
         name=name,
-        description=f"GRPO on {args.prefix}-train through the self-hosted poker harness, harness-side grading.",
-        tags={"benchmark": "pokerbots", "method": "grpo", "dataset": f"{args.prefix}-train"},
+        description=f"GRPO on {train_dataset} through the self-hosted poker harness, harness-side grading.",
+        tags={"benchmark": "pokerbots", "method": "grpo", "dataset": train_dataset},
         experiment_cfg=ExperimentConfig(
             method=RLConfig(
                 **_set(advantage=args.advantage, use_kl_loss=args.kl_coef > 0 or None, kl_loss_coef=args.kl_coef or None)
@@ -83,7 +84,7 @@ def run_config(args: argparse.Namespace, name: str) -> RunConfig:
                 )
             ),
             tasks=TasksConfig(
-                datasets=(TrainDatasetConfig(ac2_dataset_name=f"{args.prefix}-train"),),
+                datasets=(TrainDatasetConfig(ac2_dataset_name=train_dataset),),
                 custom_harness=harness,
                 **_set(apply_chat_template_kwargs={"enable_thinking": True} if args.thinking else None),
             ),
@@ -106,6 +107,7 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--project", default="vals-hackathon")
     p.add_argument("--prefix", default="pokerbots", help="dataset prefix from rl/make_dataset.py")
+    p.add_argument("--train-dataset", help="explicit training dataset (default <prefix>-train)")
     p.add_argument("--model", default="Qwen/Qwen3.6-35B-A3B", help="base model (arena entries are this model or fine-tunes of it)")
     p.add_argument("--dry-run", action="store_true", help="print the settings and configuration, submit nothing")
     g = p.add_argument_group("set by default (the GRPO recipe); change them with these flags")
@@ -135,7 +137,7 @@ def parser() -> argparse.ArgumentParser:
     a.add_argument("--keep-checkpoints", type=int, help="checkpoints to keep")
     a.add_argument("--eval-dataset", help="in-run eval dataset (default <prefix>-select)")
     a.add_argument("--eval-concurrency", type=int, help="concurrent hands in the in-run eval")
-    a.add_argument("--grading-timeout", type=float, help="seconds AC2 waits for your harness to grade a rollout")
+    a.add_argument("--grading-timeout", type=float, default=900, help="seconds AC2 waits for a rollout's grading (default 900); size game runs from measured durations")
     return p
 
 

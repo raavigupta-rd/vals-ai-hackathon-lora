@@ -16,7 +16,7 @@ from typing import Any
 
 from ac2.sdk import Client
 
-COLUMNS = ("job_id", "generated_step", "datapoint_id", "artifacts", "parent_score_id", "created_at")
+COLUMNS = ("job_id", "generated_step", "datapoint_id", "artifacts", "parent_score_id", "created_at", "score")
 
 
 def score_rows(client: Client, eval_id: str | None = None, run: str | None = None, step: int | None = None) -> dict:
@@ -32,32 +32,61 @@ def score_rows(client: Client, eval_id: str | None = None, run: str | None = Non
         if run and (not job.startswith("eval_") or str(row["generated_step"]) != str(step)):
             continue
         artifacts = row["artifacts"] if isinstance(row["artifacts"], dict) else json.loads(row["artifacts"] or "{}")
-        if "ev_bb" in artifacts:
-            rows[str(row["datapoint_id"])] = artifacts
+        if "ev_bb" in artifacts or artifacts.get("failure"):
+            rows[str(row["datapoint_id"])] = artifacts | {"reward_score": row.get("score")}
     return rows
 
 
-def _ci95(values: list[float]) -> float:
-    return 1.96 * statistics.stdev(values) / len(values) ** 0.5 if len(values) > 1 else float("nan")
+def _ci95(values: list[float]) -> float | None:
+    return 1.96 * statistics.stdev(values) / len(values) ** 0.5 if len(values) > 1 else None
+
+
+def rounded(value):
+    return round(value, 3) if value is not None else None
 
 
 def summarize(rows: dict, base: dict | None = None) -> dict[str, Any]:
     if not rows:
-        return {"hands": 0}
-    ev = [r["ev_bb"] for r in rows.values()]
+        return {"games": 0, "hands": 0}
+    played = {k: r for k, r in rows.items() if "ev_bb" in r}
+    hands = sum(r.get("hands", 1) for r in played.values())
+    total_ev = sum(r["ev_bb"] for r in played.values())
+    per_hand = total_ev / hands if hands else None
+    # Cluster uncertainty by task/game; thirty correlated hands are not thirty independent games.
+    residuals = [r["ev_bb"] - per_hand * r.get("hands", 1) for r in played.values()] if per_hand is not None else []
+    scale = statistics.fmean(r.get("hands", 1) for r in played.values()) if played else 1
+    ci = _ci95(residuals)
+    decisions = sum(r.get("policy_decisions", 0) for r in played.values())
+    errors = sum(r.get("policy_format_errors", 0) for r in played.values())
+    places = [r["place"] for r in played.values() if r.get("place") is not None]
+    busts = [r["busted"] for r in played.values() if r.get("busted") is not None]
+    failed = sum(bool(r.get("failure") or r.get("policy_format_errors", 0)) for r in rows.values())
     out: dict[str, Any] = {
-        "hands": len(ev),
-        "ev_bb_per_hand": round(statistics.fmean(ev), 3),
-        "ci95": round(_ci95(ev), 3),
-        "format_error_hands": round(statistics.fmean(r["policy_format_errors"] > 0 for r in rows.values()), 4),
+        "games": len(rows), "games_with_chip_results": len(played), "hands": hands,
+        "ev_bb_per_hand": rounded(per_hand), "ci95": rounded(ci / scale if ci is not None else None),
+        "realized_bb_per_hand": rounded(sum(r.get("realized_bb", r["ev_bb"]) for r in played.values()) / hands) if hands else None,
+        "failed_game_rate": round(failed / len(rows), 4),
+        "policy_decisions": decisions, "policy_format_errors": errors,
+        "decision_failure_rate": round(errors / decisions, 4) if decisions else None,
+        "mean_final_place": rounded(statistics.fmean(places)) if places else None,
+        "games_with_place": len(places),
+        "bust_rate": round(statistics.fmean(busts), 4) if busts else None, "games_with_bust_status": len(busts),
     }
+    if all(r.get("hands", 1) == 1 for r in played.values()):
+        out["format_error_hands"] = out["failed_game_rate"]  # compatibility for single-hand datasets only
     if base:
-        diffs = [rows[k]["ev_bb"] - base[k]["ev_bb"] for k in rows if k in base]
+        paired = [k for k in played if k in base and "ev_bb" in base[k]]
+        diffs = [played[k]["ev_bb"] / played[k].get("hands", 1) - base[k]["ev_bb"] / base[k].get("hands", 1) for k in paired]
         if diffs:
+            place_diffs = [played[k]["place"] - base[k]["place"] for k in paired if "place" in played[k] and "place" in base[k]]
             out["vs_base"] = {
-                "paired_hands": len(diffs),
-                "diff": round(statistics.fmean(diffs), 3),
-                "ci95": round(_ci95(diffs), 3),
+                "paired_games": len(paired),
+                "paired_hands": sum(played[k].get("hands", 1) for k in paired) if all(played[k].get("hands", 1) == base[k].get("hands", 1) for k in paired) else None,
+                "diff": rounded(statistics.fmean(diffs)), "ci95": rounded(_ci95(diffs)),
+                "diff_unit": "mean paired game difference in BB per played hand",
+                "ev_bb_per_game_diff": rounded(statistics.fmean(played[k]["ev_bb"] - base[k]["ev_bb"] for k in paired)),
+                "mean_final_place_diff": rounded(statistics.fmean(place_diffs)) if place_diffs else None,
+                "place_diff_ci95": rounded(_ci95(place_diffs)), "paired_games_with_place": len(place_diffs),
             }
     return out
 

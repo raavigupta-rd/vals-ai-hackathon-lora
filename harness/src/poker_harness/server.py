@@ -45,7 +45,7 @@ from .completions import (
 )
 from .ev import label_ev
 from .game import play_session
-from .grading import GradingError, bounded, check_grader_params, failure_score, grade_log
+from .grading import GRADER_REVISION, GradingError, bounded, check_grader_params, failure_score, grade_log
 from .labels import label_folds
 from .prompts import TableRules, talk_fields
 from .seat import ModelSeat
@@ -297,7 +297,8 @@ def create_app(
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
-        return {"status": "ok", "rollouts": {s: sum(r.status == s for r in rollouts.values()) for s in ("running",)}}
+        return {"status": "ok", "grader_revision": GRADER_REVISION,
+                "rollouts": {s: sum(r.status == s for r in rollouts.values()) for s in ("running",)}}
 
     @app.post("/submit")
     async def submit(

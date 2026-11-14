@@ -70,6 +70,17 @@ rejected. Hints never see the sampled reply or private opponent cards.
 Offline OPSD reweights base replies; it cannot introduce an action base never samples. The event's BYOH-only
 restriction excludes online OPSD. Coordinate the single training slot with A before launching offline OPSD.
 
+For the decide-fast experiment use `--hint-file poker/decide_fast_hint.txt --max-tokens 2500` and the train eval
+`eval_ce4924764f47`. The builder now checks the live eval's base-model/dataset provenance and every trace's
+task membership, token counts, completion status and action legality. `--allow-running-dry-run --dry-run` can
+preview completed decisions while that eval runs; upload requires a succeeded source eval. Inspect the 20
+state/action/hint entries in `--hint-report`, then pass its printed `--reviewed-report-sha256` for an upload to a
+new versioned name. Existing hinted datasets are refused, never appended blindly.
+
+`python -m poker.trace_quality <trace-export.jsonl> --out <report.json>` reports per-decision/cleanup cutoff and
+failure rates and token median/p99. It labels sums of repeated request tokens as upper bounds; these are not
+exact training transcript lengths. Long-game training remains gated on measured short-game token use.
+
 ## Scouting and probes
 
 ```powershell

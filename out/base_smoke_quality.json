@@ -1,0 +1,79 @@
+{
+  "counts": {
+    "decisions": 8,
+    "cleanups": 4,
+    "tasks": 4,
+    "tasks_with_failures": 0
+  },
+  "decision_cutoff_rate": 0.0,
+  "decision_failure_rate": 0.0,
+  "failed_task_rate": 0.0,
+  "tokens": {
+    "decision_output": {
+      "count": 8,
+      "sum": 4998,
+      "median": 620.5,
+      "p99": 864.79,
+      "max": 865
+    },
+    "cleanup_output": {
+      "count": 4,
+      "sum": 3007,
+      "median": 746.0,
+      "p99": 949.78,
+      "max": 955
+    },
+    "task_output": {
+      "count": 4,
+      "sum": 8005,
+      "median": 1575.0,
+      "p99": 3487.3399999999992,
+      "max": 3539
+    },
+    "request_input": {
+      "count": 12,
+      "sum": 21327,
+      "median": 1684.5,
+      "p99": 2615.05,
+      "max": 2642
+    },
+    "task_all_request_tokens_upper_bound": {
+      "count": 4,
+      "sum": 29332,
+      "median": 4710.5,
+      "p99": 15346.429999999997,
+      "max": 15668
+    }
+  },
+  "tasks": [
+    {
+      "trace_id": "a7cd5ee3f18dfc06794be2aa5be66711",
+      "output_tokens": 1817,
+      "all_request_tokens_upper_bound": 4949,
+      "export_bytes": 49615,
+      "has_failure": false
+    },
+    {
+      "trace_id": "086114139ad8f3f7030eb552cc78b199",
+      "output_tokens": 1316,
+      "all_request_tokens_upper_bound": 4243,
+      "export_bytes": 45836,
+      "has_failure": false
+    },
+    {
+      "trace_id": "45656692b3a1c430be98fa6bc4bd3e02",
+      "output_tokens": 3539,
+      "all_request_tokens_upper_bound": 15668,
+      "export_bytes": 140971,
+      "has_failure": false
+    },
+    {
+      "trace_id": "19c6cf319f259ae59d4f1cb4211f1f51",
+      "output_tokens": 1333,
+      "all_request_tokens_upper_bound": 4472,
+      "export_bytes": 45724,
+      "has_failure": false
+    }
+  ],
+  "budget_note": "All-request token sum deliberately overcounts repeated prompt prefixes. It is an observed upper bound, not the trainer's exact accumulated transcript length. Do not choose long-game limits from it without a measured training pilot. Export bytes are not the connector collect_outputs payload size."
+}

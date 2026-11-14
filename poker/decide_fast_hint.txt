@@ -1,0 +1,5 @@
+Decide efficiently: assess hand strength, position, and the price to continue, then act.
+Use brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating
+irrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.
+Bet and raise amounts are total chips committed on this street. Respect the listed bounds.
+Seek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.

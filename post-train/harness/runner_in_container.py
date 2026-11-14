@@ -60,18 +60,24 @@ def run_one(binary, stdin_path_or_bytes, tl, mem, out_path):
             fin.seek(0)
         else:
             fin = open(stdin_path_or_bytes, "rb")
+        # Time limit is judged on CPU time (user+sys) so host load doesn't cause false TLEs;
+        # wall clock only acts as a generous hard stop (e.g. for programs blocked on input).
+        ru0 = resource.getrusage(resource.RUSAGE_CHILDREN)
         t0 = time.perf_counter()
         try:
             p = subprocess.run([binary], stdin=fin, stdout=fout, stderr=ferr, cwd=td, preexec_fn=pre,
-                               timeout=tl * 2 + 1)
+                               timeout=tl * 4 + 2)
             rc, timed_out = p.returncode, False
         except subprocess.TimeoutExpired:
             rc, timed_out = -9, True
-        dt = time.perf_counter() - t0
+        wall = time.perf_counter() - t0
+        ru1 = resource.getrusage(resource.RUSAGE_CHILDREN)
+        cpu = (ru1.ru_utime - ru0.ru_utime) + (ru1.ru_stime - ru0.ru_stime)
+        dt = cpu if not timed_out else max(cpu, wall)
         fin.close()
         ferr.seek(0)
         err = ferr.read(SHOW).decode(errors="replace")
-    if timed_out or dt > tl:
+    if timed_out or dt > tl or rc in (-24, -9):  # -24 = SIGXCPU from RLIMIT_CPU
         status = "TLE"
     elif rc == -25:
         status = "OLE"

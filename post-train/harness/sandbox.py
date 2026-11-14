@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -113,10 +114,15 @@ def _to_container(p: Path) -> str:
 async def _run_spec(spec: dict, n: int) -> list[RunResult]:
     run_id = uuid.uuid4().hex[:12]
     spec["out_dir"] = f"/rw/out/{run_id}"
-    timeout = n * (spec["time_limit"] * 2 + 3) + 30
-    async with _sem():
-        rc, out, err = await _exec(["python3", "/work/runner.py", json.dumps(spec)], timeout)
-    shutil.rmtree(WORK_DIR / "rw" / "out" / run_id, ignore_errors=True)
+    timeout = n * (spec["time_limit"] * 4 + 4) + 30  # must exceed the runner's per-test wall stop (4*tl+2)
+    for attempt in range(3):  # transient docker-exec failures must not count as wrong answers
+        async with _sem():
+            rc, out, err = await _exec(["python3", "/work/runner.py", json.dumps(spec)], timeout)
+        shutil.rmtree(WORK_DIR / "rw" / "out" / run_id, ignore_errors=True)
+        if rc == 0:
+            break
+        print(f"[sandbox] runner failed (attempt {attempt + 1}, rc={rc}): {err[-300:]}", file=sys.stderr, flush=True)
+        await asyncio.sleep(1 + attempt)
     if rc != 0:
         return [RunResult("RE", "", f"sandbox error: {err[-500:]}", rc, 0.0, False)]
     return [RunResult(r["status"], r.get("stdout", ""), r["stderr"], r["exit_code"], r["time"], r["passed"])

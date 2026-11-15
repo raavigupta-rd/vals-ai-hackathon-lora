@@ -23,7 +23,7 @@ from pathlib import Path
 IMAGE = os.environ.get("HARNESS_IMAGE", "gcc:14")
 CONTAINER = os.environ.get("HARNESS_CONTAINER", "cp-harness")
 WORK_DIR = Path(os.environ.get("HARNESS_WORK", Path(__file__).resolve().parent.parent / ".cache" / "work"))
-CXX_FLAGS = ["-std=c++20", "-O2", "-include", "bits/stdc++.h"]
+CXX_FLAGS = ["-std=c++20", "-O2", "-include", "bits/stdc++.h", "-static"]  # static: program runs chrooted in an empty dir
 COMPILE_TIMEOUT = 60.0
 DEFAULT_MEM = 1024 * 1024 * 1024  # 1 GiB, as in the Vals example problem
 
@@ -45,6 +45,8 @@ def ensure_container() -> None:
     """Start the sandbox container if it isn't running (idempotent). No-op for the modal backend."""
     for sub in ("ro/bin", "ro/tests", "rw/src", "rw/bin", "rw/out"):
         (WORK_DIR / sub).mkdir(parents=True, exist_ok=True)
+    # Hidden tests (incl. expected outputs) must not be readable by sandboxed programs (run as nobody).
+    os.chmod(WORK_DIR / "ro" / "tests", 0o700)
     if BACKEND == "modal":
         return
     shutil.copy(Path(__file__).with_name("runner_in_container.py"), WORK_DIR / "ro" / "runner.py")

@@ -21,7 +21,7 @@ import modal
 APP_NAME = "cp-harness"
 VOLUME_NAME = "cp-tests"
 HERE = Path(__file__).resolve().parent
-CXX_FLAGS = ["-std=c++20", "-O2", "-include", "bits/stdc++.h"]
+CXX_FLAGS = ["-std=c++20", "-O2", "-include", "bits/stdc++.h", "-static"]  # static: program runs chrooted in an empty dir
 
 image = (
     modal.Image.from_registry("gcc:14", add_python="3.12")
@@ -31,37 +31,47 @@ app = modal.App(APP_NAME)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 
 
-@app.function(image=image, volumes={"/work/tests": volume}, cpu=2.0, memory=4096, timeout=900,
-              max_containers=int(os.environ.get("MODAL_MAX_CONTAINERS", 64)), block_network=True)
-@modal.concurrent(max_inputs=2)
+@app.function(image=image, volumes={"/work/tests": volume}, cpu=1.0, memory=3072, timeout=900,
+              max_containers=int(os.environ.get("MODAL_MAX_CONTAINERS", 128)), block_network=True)
 def execute(code: str, spec: dict | None = None) -> dict:
     """Compile `code`; if `spec` is given, run it (stdin_file / tests) like runner_in_container."""
     import subprocess
     import tempfile
+    import threading
 
     sys.path.insert(0, "/opt")
     import runner_in_container as R  # noqa: E402
 
+    # Hidden tests (incl. expected outputs) must not be readable by the program (it runs as nobody).
+    try:
+        os.chmod("/work/tests", 0o700)
+    except OSError:
+        pass
     h = hashlib.sha256((" ".join(CXX_FLAGS) + "\n" + code).encode()).hexdigest()[:24]
     bdir = Path("/tmp/bin")
     bdir.mkdir(exist_ok=True)
     os.chmod(bdir, 0o755)
     binary = bdir / h
     if not binary.exists():
-        src = bdir / f"{h}.cpp"
+        # unique temp names: concurrent inputs in one container may compile the same code at once
+        tag = f"{h}.{os.getpid()}.{threading.get_ident()}"
+        src = bdir / f"{tag}.cpp"
         src.write_text(code)
-        p = subprocess.run(["g++", *CXX_FLAGS, str(src), "-o", str(binary) + ".tmp"],
-                           capture_output=True, text=True, timeout=60)
+        tmp = bdir / f"{tag}.tmp"
+        p = subprocess.run(["g++", *CXX_FLAGS, str(src), "-o", str(tmp)], capture_output=True, text=True, timeout=60)
+        src.unlink(missing_ok=True)
         if p.returncode != 0:
             return {"compiled": False, "error": p.stderr.replace(str(src), "solution.cpp")[:8000] or "Compilation failed"}
-        os.replace(str(binary) + ".tmp", binary)
-        os.chmod(binary, 0o755)
+        os.chmod(tmp, 0o755)
+        os.replace(tmp, binary)  # atomic; last writer wins with an identical binary
     if spec is None:
         return {"compiled": True}
 
     work = Path(tempfile.mkdtemp(prefix="run-"))
     os.chmod(work, 0o777)
-    spec = dict(spec, binary=str(binary), out_dir=str(work / "out"))
+    # gVisor's rusage CPU accounting is unreliable (trivial programs report ~2.5 s user time),
+    # so judge wall time; one input per container (no @modal.concurrent) keeps it uncontended.
+    spec = dict(spec, binary=str(binary), out_dir=str(work / "out"), timing="wall")
     if spec.get("stdin") is not None:
         f = work / "in.txt"
         f.write_text(spec.pop("stdin"))

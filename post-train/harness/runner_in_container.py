@@ -15,6 +15,7 @@ status: OK / WA / RE / TLE / MLE / OLE.
 import json
 import os
 import resource
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -42,14 +43,22 @@ def tokens_match(got, exp):
     return len(g) == len(e) and all(_tok_eq(x, y) for x, y in zip(g, e))
 
 
-def run_one(binary, stdin_path_or_bytes, tl, mem, out_path):
+def run_one(binary, stdin_path_or_bytes, tl, mem, out_path, timing="cpu"):
+    """timing="cpu": judge user+sys CPU time (accurate under host load; local Docker).
+    timing="wall": judge wall time (for gVisor/Modal, whose rusage CPU accounting is unreliable;
+    run one program per container so wall time isn't inflated by contention)."""
     def pre():
-        cpu = int(tl + 0.999) + 1  # anything over tl is judged TLE anyway; kill soon after
+        # with wall timing the (possibly bogus) CPU counter must never kill a valid run early
+        cpu = int(tl + 0.999) + 1 if timing == "cpu" else int(tl * 4) + 5
         resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu + 1))
         resource.setrlimit(resource.RLIMIT_AS, (mem + 64 * 1024 * 1024,) * 2)
         resource.setrlimit(resource.RLIMIT_STACK, (resource.RLIM_INFINITY,) * 2)
         resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_OUT,) * 2)
         resource.setrlimit(resource.RLIMIT_NPROC, (64, 64))
+        # Jail the (statically linked) program in its empty temp dir: it must not be able to read
+        # hidden tests / expected outputs or other binaries. Then drop root.
+        os.chroot(td)
+        os.chdir("/")
         os.setgid(65534)
         os.setuid(65534)
 
@@ -63,14 +72,17 @@ def run_one(binary, stdin_path_or_bytes, tl, mem, out_path):
             fin = open(stdin_path_or_bytes, "rb")
         # Time limit is judged on this child's own CPU time (user+sys, via wait4) so host load and
         # concurrent runs don't cause false TLEs; wall clock is only a generous hard stop.
-        p = subprocess.Popen([binary], stdin=fin, stdout=fout, stderr=ferr, cwd=td, preexec_fn=pre)
+        jailed = os.path.join(td, "prog")
+        shutil.copy(binary, jailed)
+        os.chmod(jailed, 0o755)
+        p = subprocess.Popen(["/prog"], executable="/prog", stdin=fin, stdout=fout, stderr=ferr, cwd=td, preexec_fn=pre)
         killed = threading.Event()
 
         def _kill():
             killed.set()
             p.kill()
 
-        timer = threading.Timer(tl * 4 + 2, _kill)
+        timer = threading.Timer(tl * 4 + 2 if timing == "cpu" else tl * 1.5 + 1, _kill)
         t0 = time.perf_counter()
         timer.start()
         _, status_code, ru = os.wait4(p.pid, 0)
@@ -80,11 +92,14 @@ def run_one(binary, stdin_path_or_bytes, tl, mem, out_path):
         p.returncode = rc  # already reaped
         timed_out = killed.is_set()
         cpu = ru.ru_utime + ru.ru_stime
-        dt = cpu if not timed_out else max(cpu, wall)
+        if timing == "wall":
+            dt = wall
+        else:
+            dt = cpu if not timed_out else max(cpu, wall)
         fin.close()
         ferr.seek(0)
         err = ferr.read(SHOW).decode(errors="replace")
-    if timed_out or dt > tl or rc in (-24, -9):  # -24 = SIGXCPU from RLIMIT_CPU
+    if timed_out or dt > tl or rc in (-24, -9):  # -24 = SIGXCPU from RLIMIT_CPU, -9 = wall-clock kill
         status = "TLE"
     elif rc == -25:
         status = "OLE"
@@ -92,7 +107,8 @@ def run_one(binary, stdin_path_or_bytes, tl, mem, out_path):
         status = "MLE" if "bad_alloc" in err else "RE"
     else:
         status = "OK"
-    return {"status": status, "time": round(dt, 4), "exit_code": rc, "stderr": err}
+    return {"status": status, "time": round(dt, 4), "exit_code": rc, "stderr": err,
+            "utime": round(ru.ru_utime, 4), "stime": round(ru.ru_stime, 4), "wall": round(wall, 4)}
 
 
 def check(checker, in_path, exp_path, got_path):
@@ -123,14 +139,14 @@ def run_spec(spec):
     res = []
     if spec.get("tests") is None:
         op = os.path.join(out_dir, "0.out")
-        r = run_one(binary, spec["stdin_file"], tl, mem, op)
+        r = run_one(binary, spec["stdin_file"], tl, mem, op, spec.get("timing", "cpu"))
         r["stdout"] = head(op)
         r["passed"] = None
         res.append(r)
     else:
         for i, t in enumerate(spec["tests"]):
             op = os.path.join(out_dir, f"{i}.out")
-            r = run_one(binary, t["in"], tl, mem, op)
+            r = run_one(binary, t["in"], tl, mem, op, spec.get("timing", "cpu"))
             if r["status"] == "OK":
                 r["passed"] = check(spec.get("checker"), t["in"], t["out"], op)
                 if not r["passed"]:

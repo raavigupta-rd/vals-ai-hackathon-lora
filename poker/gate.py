@@ -184,6 +184,9 @@ def aggregate(results: list[dict]) -> dict:
     for rule in sorted({r["rule"] for r in judged}):
         rs = [r for r in judged if r["rule"] == rule]
         out["judged"]["by_rule"][rule] = {"n": len(rs), "agree": agree(rs), "agree_rate": agree(rs) / len(rs)}
+    # Call rate when facing an all-in: improving arena teams call ~30-35%; our base calls ~58% and busts more.
+    allin = [r for r in judged if r["rule"] == "allin_call" and r["action"]]
+    out["allin_call_rate"] = sum(1 for r in allin if r["action"] in ("call", "raise")) / len(allin) if allin else None
     other = [r for r in results if r["group"] == "other"]
     counts = {a: sum(1 for r in other if r["action"] == a) for a in ACTIONS}
     out["other"] = {"n": len(other), "dist": {a: c / len(other) if other else None for a, c in counts.items()},
@@ -313,6 +316,7 @@ def format_table(summary: dict) -> str:
     for a in ACTIONS:
         row(f"other: {a}", lambda s, a=a: _pct(s["other"]["dist"][a]))
     row("other: drift vs original", lambda s: _pct(s["other"]["drift"]))
+    row("all-in spots: call rate", lambda s: _pct(s.get("allin_call_rate")))
     return "\n".join(lines)
 
 

@@ -187,3 +187,10 @@ def test_bust_spots_are_replayed_more_and_gate_on_their_own():
             "judged": {"by_rule": {"allin_call": {"n": 20, "agree": 12, "agree_rate": 0.6}}}}
     v = gate.verdict(ref, cand, {"diff": 0.0, "lo": -0.1, "hi": 0.1})
     assert v["pass"] is False and "bust" in " ".join(v["reasons"])
+
+
+def test_aggregate_reports_the_call_rate_on_all_in_spots():
+    rows = [_row("a", "judged", "call", "fold", rule="allin_call"), _row("b", "judged", "fold", "fold", rule="allin_call"),
+            _row("c", "judged", "fold", "fold", rule="allin_call"), _row("d", "judged", "fold", "fold", rule="unopened")]
+    out = gate.aggregate(rows)
+    assert out["allin_call_rate"] == 1 / 3

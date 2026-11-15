@@ -105,6 +105,12 @@ def correction_reasoning(verdict: dict, hand_code: str) -> str:
     if rule == "big_price_fold":
         return ("This is a big price before the flop. Only the strongest hands can continue against this much "
                 "pressure; this hand is not one of them. Fold.")
+    if rule == "pad_read":
+        if preferred == "call":
+            return ("My scratchpad shows this player shoves or raises big in a large share of their hands, so their "
+                    f"range is wide. {hand_code} is ahead of it at this price. Call.")
+        return ("My scratchpad shows this player plays almost no hands, so a big raise from them is very strong. "
+                f"{hand_code} is not good enough. Fold.")
     if rule == "raise_first_in":
         if preferred == "fold":
             return ("It is folded to me in an early seat. Limping with this hand loses chips over time. Fold.")
@@ -363,6 +369,9 @@ def main() -> None:
     parser.add_argument("--simple", action="store_true",
                         help="v6 tier-1 rules only: big_price_fold, raise_first_in, one_pair_pot_cap, monster_value, "
                              "free_fold; every older rule becomes an anchor (overrides --rules and --exploits)")
+    parser.add_argument("--rewrite-pads", action="store_true",
+                        help="show each action turn the teacher pad the deterministic writer would have left at the start "
+                             "of that hand (poker/pad/rewrite.py); records with no gap-free chain keep their block")
     parser.add_argument("--keep-say", action="store_true", help="keep the table-talk 'say' argument in targets (default: removed)")
     parser.add_argument("--weight-scale", type=float, default=1.0, help="multiply every weight (newer cycles weigh more)")
     parser.add_argument("--resampled", type=Path, help="poker/sft/resample.py output: own-words corrections")
@@ -406,6 +415,13 @@ def main() -> None:
                             template_weight=args.template_weight, weight_scale=args.weight_scale,
                             rules=rules,
                             strip_say=not args.keep_say)
+    if args.rewrite_pads:
+        from poker.pad.rewrite import chain_index, rewrite_records
+
+        matches = {r["span_id"]: (r["match"]["match_id"], r["match"]["seat"], r["match"]["hand"]) for r, _, _ in rows}
+        records, rewrite_stats = rewrite_records(
+            records, matches, chain_index(json.loads(line) for line in args.joined.open(encoding="utf-8")))
+        stats["pad_rewrite"] = rewrite_stats
     if args.cleanup_ratio > 0:
         cleanups = [json.loads(line) for line in args.joined.open(encoding="utf-8")]
         cleanups = [r for r in cleanups if r.get("source") == "arena" and r.get("deployment") == args.cleanup_deployment]

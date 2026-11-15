@@ -430,3 +430,29 @@ def test_v6_corrections_flow_through_select():
     assert stats["corrections"] == 1 and records[0]["target"]["tool_call"]["arguments"] == {"action": "fold"}
     recs, st = select(rows, cycle=1, template_weight=1.0, rules=("raise_first_in",))
     assert st["corrections"] == 0 and st["out_of_scope"] == 1
+
+
+def test_rewrite_pads_flag_swaps_the_scratchpad_block(monkeypatch, tmp_path):
+    import sys
+
+    from poker import teacher
+    from poker.sft import make_records
+    from tests.test_pad_rewrite import cleanup as pad_cleanup
+
+    action = joined("a1") | {"match": {"match_id": "m", "hand": 2, "seat": 0, "action_index": 0, "verified": True}}
+    action["messages"] = [{"role": "system", "content": "rules"},
+                          {"role": "user", "content": "## Your scratchpad (private: only you can see it)\n<<<SCRATCHPAD\nmine\nSCRATCHPAD>>>\n4/5000 characters. You can rewrite it after this hand."}]
+    p = tmp_path / "j.jsonl"
+    p.write_text("\n".join(json.dumps(r) for r in [pad_cleanup(hand=1), action]) + "\n")
+    monkeypatch.setattr(teacher, "judge", lambda *a, **k: {"rule": None, "preferred": None, "agree": True})
+    monkeypatch.setattr(teacher, "hand_code", lambda cards: "AKs")
+    base = ["x", "--joined", str(p), "--db", str(tmp_path / "a.db"), "--cycle", "1", "--cleanup-ratio", "0",
+            "--abstain-ratio", "0"]
+    outs = {}
+    for name, extra in (("off", []), ("on", ["--rewrite-pads"])):
+        out = tmp_path / f"{name}.jsonl"
+        monkeypatch.setattr(sys, "argv", base + ["--out", str(out)] + extra)
+        make_records.main()
+        outs[name] = [json.loads(line) for line in out.read_text().splitlines()]
+    assert "mine" in outs["off"][0]["messages"][1]["content"]
+    assert outs["on"][0]["messages"][1]["content"].count("H1/30 | me seat0") == 1

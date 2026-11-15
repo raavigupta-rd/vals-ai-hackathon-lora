@@ -102,10 +102,10 @@ def _correction_args(verdict: dict, record: dict) -> dict | None:
 
 
 def select(rows, *, cycle: int, abstain_ratio: float = 2.0, seed: int = 0, resampled: dict | None = None,
-           template_weight: float = TEMPLATE_WEIGHT, weight_scale: float = 1.0):
+           template_weight: float = TEMPLATE_WEIGHT, weight_scale: float = 1.0, rules: tuple | None = None):
     """rows: (joined record, teacher verdict, hand code). Returns (records, stats)."""
     resampled = resampled or {}
-    stats = {"corrections": 0, "resampled": 0, "agreements": 0, "abstain_pool": 0, "abstain_kept": 0, "skipped": 0, "unvalidated_dropped": 0}
+    stats = {"corrections": 0, "resampled": 0, "agreements": 0, "abstain_pool": 0, "abstain_kept": 0, "skipped": 0, "unvalidated_dropped": 0, "out_of_scope": 0}
     records, pool = [], []
 
     def base(record, source, weight, target):
@@ -116,6 +116,10 @@ def select(rows, *, cycle: int, abstain_ratio: float = 2.0, seed: int = 0, resam
         if record.get("cutoff") or _call(record) is None:
             stats["skipped"] += 1
             continue
+        if rules is not None and verdict.get("agree") is not None and verdict.get("rule") not in rules:
+            # Ablation: this rule is switched off, so the spot is an anchor that keeps base's own action.
+            stats["out_of_scope"] += verdict["agree"] is False
+            verdict = {"rule": verdict.get("rule"), "preferred": None, "agree": None}
         if verdict.get("agree") is False:
             own = resampled.get(record["span_id"])
             if own and own.get("preferred", verdict["preferred"]) != verdict["preferred"]:
@@ -164,6 +168,7 @@ def main() -> None:
     parser.add_argument("--abstain-ratio", type=float, default=2.0)
     parser.add_argument("--template-weight", type=float, default=0.0,
                         help="weight of unvalidated fixed-sentence corrections; 0 drops them (default)")
+    parser.add_argument("--rules", help="comma list of teacher rules whose corrections to keep (ablations); others become anchors")
     parser.add_argument("--weight-scale", type=float, default=1.0, help="multiply every weight (newer cycles weigh more)")
     parser.add_argument("--resampled", type=Path, help="poker/sft/resample.py output: own-words corrections")
     parser.add_argument("--out", type=Path, required=True)
@@ -189,7 +194,8 @@ def main() -> None:
         from poker.teacher import hand_code
         rows.append((record, verdict, hand_code([row[0], row[1]]) if row else "this hand"))
     records, stats = select(rows, cycle=args.cycle, abstain_ratio=args.abstain_ratio, resampled=resampled,
-                            template_weight=args.template_weight, weight_scale=args.weight_scale)
+                            template_weight=args.template_weight, weight_scale=args.weight_scale,
+                            rules=tuple(args.rules.split(",")) if args.rules else None)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", encoding="utf-8") as stream:
         for record in records:

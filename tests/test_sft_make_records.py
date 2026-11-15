@@ -103,3 +103,17 @@ def test_weight_scale_multiplies_every_record_weight():
     rows.append((joined("g", "fold"), {"rule": "allin_call", "preferred": "fold", "agree": True}, "72o"))
     records, _ = select(rows, cycle=3, abstain_ratio=5, seed=0, weight_scale=2.0)
     assert {r["weight"] for r in records} == {2.0}
+
+
+def test_rules_filter_keeps_only_listed_corrections_and_treats_the_rest_as_anchors():
+    shove = {"rule": "allin_call", "preferred": "fold", "agree": False, "equity": 0.3, "required": 0.55,
+             "to_call": 190, "pot": 200}
+    raise_ = {"rule": "facing_raise", "preferred": "fold", "agree": False}
+    own = {k: {"reasoning": "mine", "content": "", "arguments": {"action": "fold"}, "preferred": "fold"} for k in "sr"}
+    rows = [(joined("s", "call"), shove, "96o"), (joined("r", "call"), raise_, "K7o")]
+    records, stats = select(rows, cycle=4, abstain_ratio=5, seed=0, resampled=own, template_weight=0,
+                            rules=("allin_call", "own_shove"))
+    by_id = {r["decision_id"]: r for r in records}
+    assert by_id["s"]["source"] == "teacher_resampled"
+    assert by_id["r"]["source"] == "self_clean"  # out-of-scope correction: base's own action kept as an anchor
+    assert stats["out_of_scope"] == 1

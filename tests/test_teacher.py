@@ -529,3 +529,16 @@ def test_stab_leaves_made_hands_first_to_act_river_and_multiway_alone(exploits):
     assert judge(_stab_db(["7h", "2s"], seats=3), "m_x", 1, seat=1, action_index=0)["rule"] != "stab"
     bet = judge(_stab_db(["7h", "2s"], our_action="bet"), "m_x", 1, seat=1, action_index=0)
     assert bet["rule"] != "stab"
+
+
+def test_field_ranges_use_llm_team_opponents_only_when_any_exist(monkeypatch):
+    import poker.teacher as t
+    con = _db()
+    # The fixture's only shover is seat 0 (team e0). Make it a house bot: the team-only field is then empty,
+    # so the range falls back to everyone rather than coming back empty.
+    con.execute("UPDATE entries SET kind='house' WHERE sub_key='e0|v1|d0'")
+    codes, _ = t.shove_range(con, "e0|v1|d0", exclude=("m_a", 2))
+    assert codes == ["QQ"]
+    con.execute("UPDATE entries SET kind='team' WHERE sub_key='e0|v1|d0'")
+    con.execute("UPDATE entries SET name='LoRA' WHERE sub_key='e0|v1|d0'")  # our own seats are never the field
+    assert t.field_sub_keys(con) == {"e1|v1|d1"}

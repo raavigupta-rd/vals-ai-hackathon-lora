@@ -269,6 +269,21 @@ POPULATION_MIN = 10  # below this many own shoves, add the population's shove ha
 # Seats are anonymous to the student (seat0..seat5), so a per-team range is information it can never use at
 # inference. By default every range is field-level: what all players did in this spot (current hand excluded).
 PER_OPPONENT = False
+# The final tournament has only other teams' models, no house bots. Field ranges therefore come from LLM-team
+# opponents (entries.kind == 'team', our own team excluded), falling back to everyone when that set has no data.
+OUR_TEAM = "LoRA"
+FIELD_TEAMS_ONLY = True
+
+
+def field_sub_keys(con) -> set[str]:
+    return {r[0] for r in con.execute("SELECT sub_key FROM entries WHERE kind='team' AND name != ?", (OUR_TEAM,))}
+
+
+def _field_clause(con, column: str = "sub_key") -> tuple[str, tuple]:
+    keys = sorted(field_sub_keys(con)) if FIELD_TEAMS_ONLY else []
+    if not keys:
+        return "", ()
+    return f" AND {column} IN ({','.join('?' * len(keys))})", tuple(keys)
 
 
 def shove_range(con, sub_key: str, exclude: tuple[str, int] | None = None) -> tuple[list[str], int]:
@@ -283,7 +298,11 @@ def shove_range(con, sub_key: str, exclude: tuple[str, int] | None = None) -> tu
     own = [r[0] for r in con.execute(query + " AND sub_key=?", (*skip, sub_key))]
     codes = list(own)
     if not PER_OPPONENT or len(own) < POPULATION_MIN:
-        codes = ([] if not PER_OPPONENT else codes) + [r[0] for r in con.execute(query, skip)]
+        clause, keys = _field_clause(con)
+        field = [r[0] for r in con.execute(query + clause, (*skip, *keys))] if clause else []
+        if not field:
+            field = [r[0] for r in con.execute(query, skip)]
+        codes = ([] if not PER_OPPONENT else codes) + field
     return sorted(set(codes)), len(own)
 
 
@@ -399,7 +418,10 @@ def postflop_class_counts(con, bettor, exclude: tuple[str, int] | None = None) -
     n = sum(own.values())
     if PER_OPPONENT and n >= POSTFLOP_MIN:
         return own, n
-    both = classify(con.execute(query, args))
+    clause, keys = _field_clause(con, "a.sub_key")
+    both = classify(con.execute(query + clause, (*args, *keys))) if clause else {}
+    if sum(both.values()) < POSTFLOP_MIN:  # too little LLM-team data in this bucket: use everyone
+        both = classify(con.execute(query, args))
     return both, n
 
 

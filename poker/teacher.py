@@ -733,7 +733,10 @@ BIG_PRICE_CONTINUE = {"AA", "KK", "QQ", "JJ", "TT", "AKs", "AKo", "AQs"}
 HUGE_PRICE_CONTINUE = {"AA", "KK", "QQ", "JJ", "AKs", "AKo"}
 FIRST_IN_RANGE = "22+ A2s+ A9o+ K9s+ KTo+ Q9s+ QTo+ J9s+ JTo T8s+ 98s 87s 76s 65s"
 FIRST_IN_SEATS = ("CO", "BTN", "SB")
-EARLY_OPEN_RANGE = "22+ ATs+ AJo+ KQs KQo"
+EARLY_OPEN_RANGE = "22+ ATs+ AJo+ KQs KQo"  # open-limps outside this from UTG/HJ are folds
+# First-in raises from the early seats: c4-s6 folded 77 UTG, AdTd UTG, ATo and KJo in cheap unopened pots.
+EARLY_RAISE_RANGE = {"UTG": "22+ A9s+ ATo+ KTs+ QTs+ JTs KQo", "HJ": "22+ A7s+ A5s ATo+ K9s+ QTs+ JTs T9s KJo+ QJo"}
+PREMIUM_FIRST_IN = "TT+ AQs+ AQo+"
 FIRST_IN_BASE = {"CO": 5, "BTN": 5, "SB": 6}
 FIRST_IN_PER_LIMPER, FIRST_IN_CAP, FIRST_IN_CAP_PREMIUM, FIRST_IN_MAX_RAISE = 2, 8, 10, 8
 MONSTER_BET_FRAC = 0.6
@@ -830,6 +833,11 @@ def _raise_first_in(row, before, raises, verdict) -> dict | None:
                 and code not in ("AA", "KK")):
             return verdict | {"rule": "raise_first_in", "preferred": "raise", "agree": False, "target_amount": target}
         return None
+    if position in ("UTG", "HJ") and action == "fold" and in_range(code, EARLY_RAISE_RANGE[position]):
+        return verdict | {"rule": "raise_first_in", "preferred": "raise", "agree": False, "target_amount": 5 + 2 * limpers}
+    if action == "fold" and position not in ("BB", "HU_BB") and in_range(code, PREMIUM_FIRST_IN):
+        target = open_target(position, code, limpers) if position in FIRST_IN_BASE else 5 + 2 * limpers
+        return verdict | {"rule": "raise_first_in", "preferred": "raise", "agree": False, "target_amount": target}
     if position in ("UTG", "HJ") and action == "call":
         if in_range(code, EARLY_OPEN_RANGE):
             return verdict | {"rule": "raise_first_in", "preferred": "raise", "agree": False, "target_amount": 5}

@@ -350,8 +350,9 @@ def test_v6_correction_texts_are_plain_poker():
                            "This is a big price before the flop. Only the strongest hands can continue against this "
                            "much pressure; this hand is not one of them. Fold."),
         "raise_first_in": ({"rule": "raise_first_in", "preferred": "raise", "target_amount": 5},
-                           "It is folded to me in a stealing position. A small raise wins the blinds often and is "
-                           "better than limping or folding. Raise to 5."),
+                           "Nobody has raised yet, and A5s is good enough to open from here. A small raise often wins "
+                           "the blinds right away and otherwise builds a pot I start ahead in; folding or limping gives "
+                           "that up. Raise to 5."),
     }
     for rule, (verdict, text) in texts.items():
         assert correction_reasoning(verdict, "A5s") == text

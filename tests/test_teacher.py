@@ -1069,3 +1069,19 @@ def test_pad_read_correction_text_and_args():
         assert "scratchpad" not in correction_reasoning(verdict, "77").lower()
         assert "scratchpad" not in correction_reasoning(verdict, "77", pad_rewritten=False).lower()
     assert _correction_args(call, {"messages": []}) == {"action": "call"}
+
+
+def test_raise_first_in_early_seats_raise_good_hands_instead_of_folding(exploits):
+    exploits("raise_first_in")
+    for seat, cards in ((3, ["7c", "7d"]), (3, ["Ad", "Td"]), (4, ["Ac", "Th"]), (4, ["Kh", "Jd"]), (4, ["Ah", "5h"])):
+        v = _judge1(_pre_db(seat, cards, "fold", nseats=6), seat)
+        assert (v["rule"], v["preferred"], v["target_amount"]) == ("raise_first_in", "raise", 5), (seat, cards)
+    assert _judge1(_pre_db(3, ["Ah", "5h"], "fold", nseats=6), 3)["rule"] != "raise_first_in"  # A5s is not a UTG open
+    assert _judge1(_pre_db(3, ["Kh", "9d"], "fold", nseats=6), 3)["rule"] != "raise_first_in"
+
+
+def test_folding_a_premium_first_in_is_always_corrected(exploits):
+    exploits("raise_first_in")
+    for seat, cards in ((3, ["Ah", "Ad"]), (4, ["Ks", "Kh"]), (0, ["Ac", "Kd"]), (3, ["Ac", "Qd"])):
+        v = _judge1(_pre_db(seat, cards, "fold", nseats=6), seat)
+        assert v["rule"] == "raise_first_in" and v["preferred"] == "raise", (seat, cards)

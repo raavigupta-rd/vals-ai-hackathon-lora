@@ -119,8 +119,9 @@ def correction_reasoning(verdict: dict, hand_code: str, pad_rewritten: bool = Fa
     if rule == "raise_first_in":
         if preferred == "fold":
             return ("It is folded to me in an early seat. Limping with this hand loses chips over time. Fold.")
-        return ("It is folded to me in a stealing position. A small raise wins the blinds often and is better than "
-                f"limping or folding. Raise to {verdict['target_amount']}.")
+        return (f"Nobody has raised yet, and {hand_code} is good enough to open from here. A small raise often wins the "
+                "blinds right away and otherwise builds a pot I start ahead in; folding or limping gives that up. "
+                f"Raise to {verdict['target_amount']}.")
     if rule == "one_pair_pot_cap":
         action = "Check" if preferred == "check" else "Fold"
         return f"One pair is not strong enough to play a big pot; this bet or raise shows a strong range. {action}."

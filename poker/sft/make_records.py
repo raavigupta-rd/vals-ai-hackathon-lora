@@ -29,7 +29,7 @@ TEMPLATE_WEIGHT = 1.0  # fixed-sentence fallback: cycle 1 showed these get memor
 AGREE_WEIGHT = 1.0
 SIMPLE_EXPLOITS = ("big_price_fold", "raise_first_in", "one_pair_pot_cap", "monster_value")  # teacher v6 tier 1
 V7_EXPLOITS = ("big_price_fold", "monster_value", "one_pair_pot_cap", "rfi_gto", "iso_raise", "bb_defend", "three_bet",
-               "vs_3bet", "field_call", "postflop_sizing")  # teacher v7; raise_first_in is replaced by rfi_gto and iso_raise
+               "vs_3bet", "field_call", "postflop_sizing", "pot_odds_call")  # teacher v7; raise_first_in is replaced by rfi_gto and iso_raise
 V7_RAISE_RULES = ("rfi_gto", "iso_raise", "three_bet", "vs_3bet")  # preflop raise-to corrections with a target_amount
 ABSTAIN_WEIGHT = 1.0
 
@@ -131,7 +131,12 @@ def _v7_sizing(verdict: dict, hand_code: str) -> str:
     return f"{cost} with a hand that is not a monster. {why}: bet about {size} the pot."
 
 
-V7_TEXTS = {"rfi_gto": _v7_rfi, "iso_raise": _v7_iso, "three_bet": _v7_three_bet, "bb_defend": _v7_bb_defend,
+def _v7_pot_odds_call(verdict: dict, hand_code: str) -> str:
+    return ("The call costs very little next to what is already in the pot, and it ends the betting for me. "
+            f"Even {hand_code} wins often enough at this price, and folding gives the pot away for nothing. Call.")
+
+
+V7_TEXTS = {"pot_odds_call": _v7_pot_odds_call, "rfi_gto": _v7_rfi, "iso_raise": _v7_iso, "three_bet": _v7_three_bet, "bb_defend": _v7_bb_defend,
             "vs_3bet": _v7_vs_3bet, "field_call": _v7_field_call, "postflop_sizing": _v7_sizing}
 
 

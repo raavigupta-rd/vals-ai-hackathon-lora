@@ -636,7 +636,7 @@ def test_cli_flags_run_and_report(monkeypatch, tmp_path):
 
 # ---- teacher v7 ----
 V7_NAMES = {"big_price_fold", "monster_value", "one_pair_pot_cap", "rfi_gto", "iso_raise", "bb_defend", "three_bet",
-            "vs_3bet", "postflop_sizing", "field_call"}
+            "vs_3bet", "postflop_sizing", "field_call", "pot_odds_call"}
 
 
 def test_v7_flag_enables_exactly_the_v7_rules(monkeypatch, tmp_path):
@@ -785,3 +785,11 @@ def test_add_fact_headers_is_idempotent_with_a_pad_line_and_goes_above_it():
     lines = once[0]["target"]["reasoning"].split("\n")
     assert lines[0].startswith("Facts: ") and lines[1:] == ["Reads: nothing relevant", "Fold."]
     assert add_fact_headers(once)[0] == once
+
+
+def test_v7_pot_odds_call_text_is_plain_poker():
+    from poker.sft.make_records import V7_EXPLOITS, V7_TEXTS
+
+    assert "pot_odds_call" in V7_EXPLOITS
+    text = V7_TEXTS["pot_odds_call"]({"rule": "pot_odds_call", "preferred": "call", "required": 0.015}, "72o")
+    assert "call" in text.lower() and not any(w in text.lower() for w in ("percent", "%", "data", "field", "sample", "team"))

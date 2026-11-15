@@ -1521,3 +1521,36 @@ def test_field_call_discounts_equity_out_of_position(field, monkeypatch):
     btn = [_open(3, 5), _hero(0, "fold", None, 8, 5)]
     v = _v7(0, ["9h", "8h"], btn)
     assert (v["rule"], v["preferred"]) == ("field_call", "call")
+
+
+# ---- pot_odds_call: a tiny price for our last chips is a call with any two cards ----
+
+def _short_spot(cards, action, to_call, pot, stack=15, extra=()):
+    """Seat 3 is all-in in front; hero (seat 0) has `stack` chips and faces `to_call` into `pot`."""
+    shove = _act(3, "raise", 200, 3, 2, -200, 0)
+    change = 0 if action == "fold" else -to_call
+    hero = _act(0, action, None, pot, to_call, change, stack + change)
+    return _v7(0, cards, [shove, *extra, hero], stack=stack)
+
+
+def test_pot_odds_call_calls_any_two_for_a_tiny_price(exploits):
+    exploits("pot_odds_call", "big_price_fold")
+    v = _short_spot(["7h", "2d"], "fold", to_call=15, pot=998)
+    assert (v["rule"], v["preferred"], v["agree"]) == ("pot_odds_call", "call", False)
+    assert v["required"] < 0.02
+    called = _short_spot(["7h", "2d"], "call", to_call=15, pot=998)
+    assert called["rule"] != "big_price_fold" and called.get("preferred") != "fold"
+
+
+def test_pot_odds_call_needs_an_all_in_spot_and_a_cheap_price(exploits):
+    exploits("pot_odds_call")
+    # heads-up, 20 into 85 is 19%: call. The same price with a third player in the pot is not automatic.
+    assert _short_spot(["7h", "2d"], "fold", to_call=20, pot=85, stack=20)["rule"] == "pot_odds_call"
+    caller = _act(4, "call", None, 203, 200, -200, 0)
+    assert _short_spot(["7h", "2d"], "fold", to_call=20, pot=85, stack=20, extra=(caller,))["rule"] != "pot_odds_call"
+    # 60 into 100 is 37%: not a pot-odds call
+    assert _short_spot(["7h", "2d"], "fold", to_call=60, pot=100, stack=60)["rule"] != "pot_odds_call"
+
+
+def test_pot_odds_call_is_off_by_default():
+    assert _short_spot(["7h", "2d"], "fold", to_call=15, pot=998)["rule"] != "pot_odds_call"

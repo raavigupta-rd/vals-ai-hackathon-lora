@@ -566,7 +566,9 @@ def judge(con, match_id: str, hand: int, seat: int, action_index: int) -> dict:
     # v6 rules first: a junk hand facing a big price is a fold, not a smaller raise (oversize).
     if "pad_read" in EXPLOITS and (v := _pad_read(con, row, before, raises, stack0, verdict, match_id, hand)):
         return v
-    if "big_price_fold" in EXPLOITS and (v := _big_price_fold(row, stack0, verdict)):
+    if "pot_odds_call" in EXPLOITS and (v := _pot_odds_call(row, before, stack0, verdict)):
+        return v
+    if "big_price_fold" in EXPLOITS and (v := _big_price_fold(row, stack0, verdict, before)):
         return v
     for name, rule in V7_PREFLOP:
         if name in EXPLOITS and (v := rule(row, before, raises, stack0, verdict)):
@@ -758,10 +760,40 @@ def open_target(position: str, code: str, limpers: int) -> int:
     return min(FIRST_IN_BASE.get(position, 5) + FIRST_IN_PER_LIMPER * limpers, cap)
 
 
-def _big_price_fold(row, stack0, verdict) -> dict | None:
-    """Rule `big_price_fold`: a big price before the flop and we continue with a hand outside the strong set. Fold."""
+POT_ODDS_HU, POT_ODDS_MULTI = 0.20, 0.12  # required equity at or below this is a call with any two cards
+
+
+def _cheap_all_in(row, before, stack0) -> float | None:
+    """The required equity when the call ends the betting for us (we are all-in for it, or the bettor is all-in) and
+    the price is at or below the any-two-cards threshold: 20% against one opponent, 12% against more. Else None."""
+    to_call = row["to_call"] or 0
+    if row["street"] != "preflop" or to_call <= 0 or not stack0:
+        return None
+    if not (row["facing_allin"] or to_call >= stack0):
+        return None
+    required = to_call / ((row["pot_before"] or 0) + to_call)
+    folded = {r["seat"] for r in before if r["action"] == "fold"}
+    others = {r["seat"] for r in before if r["action"] in ("call", "raise", "bet") and r["seat"] != row["seat"]} - folded
+    return required if required <= (POT_ODDS_HU if len(others) <= 1 else POT_ODDS_MULTI) else None
+
+
+def _pot_odds_call(row, before, stack0, verdict) -> dict | None:
+    """Rule `pot_odds_call`: folding our last chips (or to an all-in) at a tiny price gives the pot away. Call."""
+    if row["action"] != "fold":
+        return None
+    required = _cheap_all_in(row, before, stack0)
+    if required is None:
+        return None
+    return verdict | {"rule": "pot_odds_call", "preferred": "call", "agree": False, "required": round(required, 4)}
+
+
+def _big_price_fold(row, stack0, verdict, before=()) -> dict | None:
+    """Rule `big_price_fold`: a big price before the flop and we continue with a hand outside the strong set. Fold.
+    A cheap all-in price (see `_cheap_all_in`) is never a fold."""
     to_call = row["to_call"] or 0
     if row["street"] != "preflop" or to_call <= 0 or row["action"] not in ("call", "raise"):
+        return None
+    if _cheap_all_in(row, before, stack0) is not None:
         return None
     allin = bool(row["facing_allin"])
     if not (to_call > BIG_PRICE_CHIPS or (stack0 and to_call > BIG_PRICE_STACK_FRAC * stack0) or allin):

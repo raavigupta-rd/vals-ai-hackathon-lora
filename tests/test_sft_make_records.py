@@ -33,7 +33,7 @@ def test_select_mixes_corrections_agreements_and_clean_abstains():
     records, stats = select(rows, cycle=1, abstain_ratio=2.0, seed=0)
     by_id = {r["decision_id"]: r for r in records}
     assert by_id["bad"]["target"]["tool_call"]["arguments"] == {"action": "fold"}
-    assert by_id["bad"]["source"] == "teacher_correction" and by_id["bad"]["weight"] > 1
+    assert by_id["bad"]["source"] == "teacher_correction" and by_id["bad"]["weight"] == 1.0  # template fallback
     assert by_id["good"]["source"] == "teacher_agree"
     assert "cut" not in by_id  # a reply cut off at the cap is never a target
     assert stats["abstain_kept"] == 4  # 2 x (1 correction + 1 agreement)
@@ -43,3 +43,16 @@ def test_select_mixes_corrections_agreements_and_clean_abstains():
 def test_target_drops_an_amount_on_calls_checks_and_folds():
     target = target_from_reply(joined(action="call", amount=18))
     assert target["tool_call"]["arguments"] == {"action": "call"}
+
+
+def test_corrections_prefer_the_models_own_resampled_reply():
+    verdict = {"rule": "allin_call", "preferred": "fold", "agree": False, "equity": 0.3, "required": 0.55,
+               "to_call": 190, "pot": 200}
+    rows = [(joined("own", "call"), verdict, "96o"), (joined("tmpl", "call"), dict(verdict), "J4o")]
+    resampled = {"own": {"reasoning": "In my own words: fold.", "content": "", "arguments": {"action": "fold"}}}
+    records, stats = select(rows, cycle=2, abstain_ratio=0, seed=0, resampled=resampled)
+    by_id = {r["decision_id"]: r for r in records}
+    assert by_id["own"]["source"] == "teacher_resampled" and by_id["own"]["weight"] == 2.0
+    assert by_id["own"]["target"]["reasoning"] == "In my own words: fold."
+    assert by_id["tmpl"]["source"] == "teacher_correction" and by_id["tmpl"]["weight"] == 1.0
+    assert stats["resampled"] == 1 and stats["corrections"] == 2

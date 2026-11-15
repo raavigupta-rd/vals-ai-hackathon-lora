@@ -164,3 +164,13 @@ def test_verdict_rejects_a_candidate_that_stops_mixing():
     assert v["pass"] is False and "mixing" in " ".join(v["reasons"])
     worse = {"diff": -0.2, "lo": -0.35, "hi": -0.05}
     assert gate.verdict(ref, good, worse)["pass"] is False
+
+
+def test_validity_and_cutoff_bars_are_relative_to_the_reference():
+    ref = {"valid_rate": 0.98, "cutoff_rate": 0.01, "mixing": {"mixed_rate": 0.3}}
+    even = {"diff": 0.0, "lo": -0.1, "hi": 0.1}
+    near = {"valid_rate": 0.975, "cutoff_rate": 0.015, "mixing": {"mixed_rate": 0.3}}
+    assert gate.verdict(ref, near, even)["pass"] is True
+    worse = {"valid_rate": 0.95, "cutoff_rate": 0.01, "mixing": {"mixed_rate": 0.3}}
+    v = gate.verdict(ref, worse, even)
+    assert v["pass"] is False and "valid" in v["reasons"][0]

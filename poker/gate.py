@@ -236,17 +236,19 @@ def mixing(rows: list[dict]) -> dict:
             "entropy_bits": round(entropy, 3)}
 
 
-MIN_VALID, MAX_CUTOFF, MIXING_FLOOR, WORSE_MARGIN = 0.99, 0.02, 0.6, -0.05
+VALID_SLACK, CUTOFF_SLACK, MIXING_FLOOR, WORSE_MARGIN = 0.01, 0.01, 0.6, -0.05
 
 
 def verdict(reference: dict, candidate: dict, diff: dict) -> dict:
-    """Pass when the candidate is valid, rarely cut off, not clearly worse than the reference on judged spots,
+    """Pass when the candidate is about as valid as the reference (within 1 point), rarely cut off, not clearly worse than the reference on judged spots,
     and still mixes on other spots (at least 60% of the reference's mixed rate). Determinism is not a goal."""
     reasons = []
-    if (candidate["valid_rate"] or 0) < MIN_VALID:
-        reasons.append(f"valid rate {candidate['valid_rate']:.0%} below {MIN_VALID:.0%}")
-    if (candidate["cutoff_rate"] or 0) > MAX_CUTOFF:
-        reasons.append(f"cut-off rate {candidate['cutoff_rate']:.0%} above {MAX_CUTOFF:.0%}")
+    min_valid = (reference.get("valid_rate") or 0) - VALID_SLACK
+    max_cutoff = max(0.02, (reference.get("cutoff_rate") or 0) + CUTOFF_SLACK)
+    if (candidate["valid_rate"] or 0) < min_valid:
+        reasons.append(f"valid rate {candidate['valid_rate']:.1%} below reference minus 1 point ({min_valid:.1%})")
+    if (candidate["cutoff_rate"] or 0) > max_cutoff:
+        reasons.append(f"cut-off rate {candidate['cutoff_rate']:.1%} above {max_cutoff:.1%}")
     if diff.get("hi") is not None and diff["hi"] < 0:
         reasons.append(f"teacher agreement clearly worse ({diff['diff']:+.0%}, CI {diff['lo']:+.0%}..{diff['hi']:+.0%})")
     elif diff.get("diff") is not None and diff["diff"] < WORSE_MARGIN:

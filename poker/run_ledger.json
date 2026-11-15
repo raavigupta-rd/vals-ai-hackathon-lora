@@ -310,11 +310,28 @@
         "step6": "ckpt_2276e578b14f",
         "step12": "ckpt_54a267c87fcd"
       }
+    },
+    {
+      "id": "train_8eb38046bd93",
+      "kind": "sft_r2b",
+      "dataset": "pokerbots-sft-r2b",
+      "tasks": 1055,
+      "steps": 12,
+      "checkpoint_every": 6,
+      "base_checkpoint": null,
+      "parent": "Qwen/Qwen3.6-35B-A3B base",
+      "status": "running",
+      "source": "teacher v3 field ranges; 167 corrections validated in base's own words (resampled from base); 58 agreements; 675 base anchors"
     }
   ],
   "training_slot": {
-    "slots": [],
-    "rule": "Both slots free since 18:29 PST; 4 round-1 checkpoints deploying for the gate."
+    "slots": [
+      {
+        "train_id": "train_8eb38046bd93",
+        "kind": "sft_r2b"
+      }
+    ],
+    "rule": "Second slot opens when round-1 losers are deleted."
   },
   "publication": {
     "combined_implementation": "593a185",
@@ -444,5 +461,8 @@
         "lesson": "Gate passed s10 but it busts more in the arena; gate replayed base's old spots only. Gate now replays all-in spots 5x and fails candidates that regress there."
       }
     }
-  }
+  },
+  "notes": [
+    "Sat 19:30: r2a (bust fix only) has just 6 validated corrections from arena data; synthetic shove spots via scripted shovers in play_local are being built."
+  ]
 }

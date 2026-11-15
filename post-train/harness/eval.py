@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from config import BASE_MODEL, PROJECT_ID  # noqa: E402
 
 from harness import sandbox  # noqa: E402
-from harness.env import build_env, grade  # noqa: E402
+from harness.env import MAX_TURNS, build_env, grade_with_retry  # noqa: E402
 from harness.problems import load  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -61,16 +61,24 @@ async def run_one(problem, sample, policy, renderer, args, sem):
         except Exception as e:  # keep the batch going; still grade whatever was submitted
             err = f"{type(e).__name__}: {e}"
         tools = msg_env.cp_tools
-        g = await grade(problem, tools.last_compiled_code, "subtask")
-        gf = await grade(problem, tools.last_compiled_code, "fraction")
+        try:
+            g = await grade_with_retry(problem, tools.last_compiled_code, "subtask")
+            gf = await grade_with_retry(problem, tools.last_compiled_code, "fraction")
+        except sandbox.SandboxError as e:  # never report an infra failure as a 0 score
+            err = (err or "") + f" | grading infra error: {e}"
+            g = gf = None
         sampled = sum(len(t.ac.tokens) for t in traj.transitions) if traj else 0
+        if g is None:
+            print(f"[{problem['rating']}] {problem['id']:>10} INFRA ERROR (excluded) {err}", flush=True)
+            return {"id": problem["id"], "sample": sample, "rating": problem["rating"], "infra_error": True, "error": err}
         row = {
             "id": problem["id"], "sample": sample, "title": problem["title"], "rating": problem["rating"],
             "score": g["score"], "score_fraction": gf["score"],
             "small_pass": g.get("small_pass", 0.0), "large_pass": g.get("large_pass", 0.0),
             "verdicts_small": g.get("small_verdicts", ""), "verdicts_large": g.get("large_verdicts", ""),
             "submitted": g["submitted"], "n_submissions": tools.n_submissions, "n_runs": tools.n_runs,
-            "turns": msg_env._turn_count, "sampled_tokens": sampled,
+            "turns": len(traj.transitions) if traj else msg_env._turn_count, "sampled_tokens": sampled,
+            "infra_errors": tools.infra_errors,
             "stop_reason": traj.stop_reason if traj else "error", "error": err,
             "seconds": round(time.time() - t0, 1),
             "final_code": tools.last_compiled_code,
@@ -83,6 +91,8 @@ async def run_one(problem, sample, policy, renderer, args, sem):
 
 
 def summarize(rows: list[dict]) -> dict:
+    excluded = sum(bool(r.get("infra_error")) for r in rows)
+    rows = [r for r in rows if not r.get("infra_error")]
     n = len(rows)
     by_band: dict[str, list[float]] = {}
     for r in rows:
@@ -101,6 +111,7 @@ def summarize(rows: list[dict]) -> dict:
         "stop_reasons": {s: sum(r["stop_reason"] == s for r in rows) for s in {r["stop_reason"] for r in rows}},
         "score_by_rating": {b: round(statistics.mean(v), 1) for b, v in sorted(by_band.items())},
         "errors": sum(r["error"] is not None for r in rows),
+        "excluded_infra_errors": excluded,
     }
 
 
@@ -153,9 +164,9 @@ if __name__ == "__main__":
     ap.add_argument("--base-model", default=BASE_MODEL)
     ap.add_argument("--model-path", default=None, help="tinker:// sampler checkpoint")
     ap.add_argument("--renderer", default=None, help="e.g. qwen3_5 (thinking) or qwen3_5_disable_thinking")
-    ap.add_argument("--max-tokens", type=int, default=16384, help="per-turn generation cap")
-    ap.add_argument("--max-context", type=int, default=65536)
-    ap.add_argument("--max-turns", type=int, default=100)
+    ap.add_argument("--max-tokens", type=int, default=32768, help="per-turn generation cap")
+    ap.add_argument("--max-context", type=int, default=64000)
+    ap.add_argument("--max-turns", type=int, default=MAX_TURNS)
     ap.add_argument("--temperature", type=float, default=0.6)
     ap.add_argument("--concurrency", type=int, default=16)
     ap.add_argument("--samples", type=int, default=1, help="rollouts per problem")

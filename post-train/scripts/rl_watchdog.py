@@ -51,22 +51,40 @@ def z(xs: list[float]) -> list[float]:
 
 
 def sampler_for(log_dir: Path, step: int) -> str | None:
+    """Sampler checkpoint saved at exactly the evaluated step (train_rl saves every eval_every steps)."""
     ck = log_dir / "checkpoints.jsonl"
     if not ck.exists():
         return None
-    best = None
     for line in ck.read_text().splitlines():
         c = json.loads(line)
-        if c.get("sampler_path") and int(c.get("batch", -1)) <= step:
-            best = c["sampler_path"]  # latest checkpoint at or before the eval step
-    return best
+        if c.get("sampler_path") and int(c.get("batch", -1)) == step:
+            return c["sampler_path"]
+    print(f"WARNING: no sampler checkpoint saved at evaluated step {step}", flush=True)
+    return None
+
+
+def train_pid(log_dir: Path) -> int | None:
+    f = log_dir / "train.pid"
+    return int(f.read_text().strip()) if f.exists() else None
+
+
+def alive(pid: int | None) -> bool:
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
 
 
 def stop_training(log_dir: Path) -> None:
-    r = subprocess.run(["pgrep", "-f", f"harness.train_rl.*log_path={log_dir}"], capture_output=True, text=True)
-    for pid in r.stdout.split():
-        os.kill(int(pid), signal.SIGTERM)
+    pid = train_pid(log_dir)
+    if alive(pid):
+        os.kill(pid, signal.SIGTERM)
         print(f"sent SIGTERM to {pid}", flush=True)
+    else:
+        print("WARNING: training process not found; nothing stopped", flush=True)
 
 
 def main() -> None:
@@ -74,7 +92,8 @@ def main() -> None:
     ap.add_argument("log_dir")
     ap.add_argument("--patience", type=int, default=3)
     ap.add_argument("--min-evals", type=int, default=3)
-    ap.add_argument("--budget", type=float, default=60.0, help="USD (cost/cumulative_usd)")
+    ap.add_argument("--budget", type=float, default=60.0, help="USD: training cost/cumulative_usd + evals")
+    ap.add_argument("--eval-cost", type=float, default=6.0, help="USD per held-out eval (not in cost metrics)")
     ap.add_argument("--k", type=int, default=5, help="rollouts per held-out problem (unhinted + hinted)")
     ap.add_argument("--lam", type=float, default=8.0)
     ap.add_argument("--poll", type=int, default=30)
@@ -87,6 +106,8 @@ def main() -> None:
         evals = [(s, find(m, "env/heldout/score"), find(m, "env/hinted/score")) for s, m in sorted(data.items())]
         evals = [e for e in evals if e[1] is not None]
         cost = max((m.get("cost/cumulative_usd", 0.0) for m in data.values()), default=0.0)
+        n_evals = sum(1 for m in data.values() if find(m, "env/heldout/score") is not None)
+        cost += n_evals * a.eval_cost  # eval sampling isn't in cost/cumulative_usd
         if len(evals) != seen and evals:
             seen = len(evals)
             zu = z([e[1] for e in evals])
@@ -109,8 +130,8 @@ def main() -> None:
             print(f"budget ${a.budget} exceeded (${cost:.2f}) -> stopping", flush=True)
             stop_training(log_dir)
             return
-        if (log_dir / "metrics.jsonl").exists() and not subprocess.run(
-                ["pgrep", "-f", f"harness.train_rl.*log_path={log_dir}"], capture_output=True).stdout:
+        pid = train_pid(log_dir)
+        if pid is not None and not alive(pid):
             print("training process ended", flush=True)
             return
         time.sleep(a.poll)

@@ -15,6 +15,7 @@ TOOL_RUN / TOOL_SUBMIT if they differ.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -34,7 +35,10 @@ from harness import sandbox
 from harness.problems import test_paths
 
 MAX_SUBMISSIONS = 50
-MAX_TURNS = int(os.environ.get("HARNESS_MAX_TURNS", 100))
+# The Vals endpoint check runs a 5-turn agent loop and fails if the model hasn't answered (EXIT) by then.
+# Every sampling call counts as a turn (incl. turns cut off by the per-turn token cap).
+MAX_TURNS = int(os.environ.get("HARNESS_MAX_TURNS", 5))
+MAX_SAMPLED_TOKENS = int(os.environ.get("HARNESS_MAX_SAMPLED_TOKENS", 200_000))  # per-episode spend cap
 SHOW = 2000
 EXIT_RE = re.compile(r"\bEXIT\b")
 
@@ -49,6 +53,7 @@ You have two tools:
 
 Your LAST submission that compiles is graded on hidden tests (small tests are worth 40 points, large tests 60 points), under the time and memory limits in the statement. Make sure your final submission is your best, fastest, correct solution.
 
+You have at most {max_turns} turns in total (every reply counts as a turn), so plan to test and submit early.
 When you are finished, reply with EXIT (and no tool call). Fewer turns is better."""
 
 
@@ -64,6 +69,7 @@ class CPTools:
         self.n_submissions = 0
         self.last_compiled_code: str | None = None
         self.n_runs = 0
+        self.infra_errors = 0
 
     @tool
     async def run_cpp(
@@ -73,11 +79,15 @@ class CPTools:
     ) -> ToolResult:
         """Compile a C++20 program and run it on the given standard input. Returns stdout, stderr, exit code and running time."""
         self.n_runs += 1
-        comp = await sandbox.compile_cpp(code)
-        if not comp.ok:
-            return simple_tool_result(json.dumps({"compiled": False, "compile_error": _trunc(comp.error)}))
-        # a generous limit for experiments; the statement's limit is reported for comparison
-        r = await sandbox.run_stdin(comp.binary, input, max(10.0, self.p["time_limit"] * 3), self.p["memory_limit"])
+        try:
+            comp = await sandbox.compile_cpp(code)
+            if not comp.ok:
+                return simple_tool_result(json.dumps({"compiled": False, "compile_error": _trunc(comp.error)}))
+            # a generous limit for experiments; the statement's limit is reported for comparison
+            r = await sandbox.run_stdin(comp.binary, input, max(10.0, self.p["time_limit"] * 3), self.p["memory_limit"])
+        except sandbox.SandboxError:
+            self.infra_errors += 1
+            return simple_tool_result(json.dumps({"error": "Temporary infrastructure error (not your code). Please retry."}))
         return simple_tool_result(json.dumps({
             "compiled": True, "status": r.status, "exit_code": r.exit_code, "time_seconds": r.time_s,
             "time_limit_seconds": self.p["time_limit"], "stdout": _trunc(r.stdout), "stderr": _trunc(r.stderr, 1000),
@@ -91,8 +101,13 @@ class CPTools:
         """Submit a solution. It is judged on the sample tests only; your last submission that compiles is graded on the hidden tests."""
         if self.n_submissions >= MAX_SUBMISSIONS:
             return simple_tool_result(json.dumps({"error": f"Maximum submissions ({MAX_SUBMISSIONS}) reached."}))
+        try:
+            comp = await sandbox.compile_cpp(code)
+        except sandbox.SandboxError:  # not counted, and must not leave last_compiled_code stale silently
+            self.infra_errors += 1
+            return simple_tool_result(json.dumps({"error": "Temporary infrastructure error; this submission was not "
+                                                           "counted. Please submit again."}))
         self.n_submissions += 1
-        comp = await sandbox.compile_cpp(code)
         remaining = MAX_SUBMISSIONS - self.n_submissions
         if not comp.ok:
             return simple_tool_result(json.dumps({
@@ -102,8 +117,15 @@ class CPTools:
         self.last_compiled_code = code
         # Judge samples exactly like hidden tests: inside the sandbox, with the problem's checker if any.
         checker = sandbox.tests_dir() / self.p["checker"] if self.p.get("checker") else None
-        runs = await sandbox.run_tests_inline(comp.binary, [tuple(x) for x in self.p["samples"]], self.p["time_limit"],
-                                              self.p["memory_limit"], checker=checker, keep_stdout=True)
+        try:
+            runs = await sandbox.run_tests_inline(comp.binary, [tuple(x) for x in self.p["samples"]],
+                                                  self.p["time_limit"], self.p["memory_limit"], checker=checker,
+                                                  keep_stdout=True)
+        except sandbox.SandboxError:  # the code compiled, so it IS the graded submission now
+            self.infra_errors += 1
+            return simple_tool_result(json.dumps({"compiled": True, "submissions_remaining": remaining,
+                                                  "error": "Submission recorded, but the sample check hit a temporary "
+                                                           "infrastructure error."}))
         results = []
         for i, ((_, exp), r) in enumerate(zip(self.p["samples"], runs), 1):
             ok = bool(r.passed)
@@ -162,6 +184,19 @@ async def grade(problem: dict, code: str | None, score_mode: Literal["subtask", 
     return out
 
 
+async def grade_with_retry(problem: dict, code: str | None, score_mode: str = "subtask", attempts: int = 3) -> dict:
+    """grade() that retries infrastructure failures (they must never become a 0 score). Raises SandboxError if
+    the sandbox stays down, so the caller can drop the sample instead of training/evaluating on a fake score."""
+    for k in range(attempts):
+        try:
+            return await grade(problem, code, score_mode)
+        except sandbox.SandboxError as e:
+            if k == attempts - 1:
+                raise
+            print(f"[grade] infra failure, retrying in 30s: {e}", flush=True)
+            await asyncio.sleep(30)
+
+
 @dataclass
 class ValsMessageEnv(AgentToolMessageEnv):
     """AgentToolMessageEnv with Vals' termination semantics:
@@ -169,12 +204,14 @@ class ValsMessageEnv(AgentToolMessageEnv):
 
     cp_tools: CPTools | None = None
     result: dict = field(default_factory=dict)
+    instructed: bool = False  # whether the think-short instruction was in this episode's prompt
 
     async def step(self, message: Message) -> MessageStepResult:
         has_calls = bool(message.get("tool_calls") or message.get("unparsed_tool_calls"))
         if has_calls:
             return await super().step(message)
-        # text-only turn
+        # text-only turn (a clean turn: resets the malformed-call streak, like the parent does)
+        self._consecutive_parse_errors = 0
         self._turn_count += 1
         self.history.append(message)
         text = get_text_content(message) or ""
@@ -204,15 +241,16 @@ THINK_SHORT = ("\n\nThink briefly and concretely. Once you have a candidate appr
 
 
 def initial_messages(problem: dict, renderer: Renderer, tools: CPTools, hint: str = "",
-                     system_extra: str = "") -> list[Message]:
+                     system_extra: str = "", max_turns: int = MAX_TURNS) -> list[Message]:
     specs = [tools.run_cpp.to_spec(), tools.submit.to_spec()]
-    prefix = renderer.create_conversation_prefix_with_tools(tools=specs, system_prompt=SYSTEM_PROMPT + system_extra)
+    system = SYSTEM_PROMPT.format(max_turns=max_turns) + system_extra
+    prefix = renderer.create_conversation_prefix_with_tools(tools=specs, system_prompt=system)
     return prefix + [{"role": "user", "content": problem["statement"] + hint}]
 
 
 def build_env(problem: dict, renderer: Renderer, *, max_turns: int = MAX_TURNS,
-              max_trajectory_tokens: int = 60_000, max_generation_tokens: int = 16_384,
-              score_mode: str = "subtask", hint: str = "",
+              max_trajectory_tokens: int = 64_000, max_generation_tokens: int = 32_768,
+              max_sampled_tokens: int = MAX_SAMPLED_TOKENS, score_mode: str = "subtask", hint: str = "",
               system_extra: str = "") -> tuple[EnvFromMessageEnv, ValsMessageEnv]:
     tools = CPTools(problem)
     holder: dict = {}
@@ -225,13 +263,14 @@ def build_env(problem: dict, renderer: Renderer, *, max_turns: int = MAX_TURNS,
 
     msg_env = ValsMessageEnv(
         tools=[tools.run_cpp, tools.submit],
-        initial_messages=initial_messages(problem, renderer, tools, hint, system_extra),
+        initial_messages=initial_messages(problem, renderer, tools, hint, system_extra, max_turns),
         max_turns=max_turns,
         reward_fn=reward_fn,
         tool_execution="sequential",
         parse_error_policy=ParseErrorPolicy(max_consecutive=2),
         cp_tools=tools,
         result=holder,
+        instructed=bool(system_extra),
     )
     # Runner-owned budgets: each turn is capped at min(max_generation_tokens, max_trajectory_tokens -
     # current context), so episodes can use the whole context instead of stopping once
@@ -240,7 +279,11 @@ def build_env(problem: dict, renderer: Renderer, *, max_turns: int = MAX_TURNS,
     env = EnvFromMessageEnv(
         renderer=renderer, message_env=msg_env, failed_parse_reward=0.0,
         context_overflow_reward=0.0, terminate_on_length=False,
-        rollout_limits=RolloutLimits(max_turn_tokens=max_generation_tokens,
-                                     max_trajectory_tokens=max_trajectory_tokens),
+        # max_turns here counts every sampling call (incl. length-truncated turns, which the env doesn't see);
+        # max_sampled_tokens bounds spend: earlier turns' thinking is dropped from the context, so the context
+        # cap alone doesn't bound how much a looping episode samples.
+        rollout_limits=RolloutLimits(max_turns=max_turns, max_turn_tokens=max_generation_tokens,
+                                     max_trajectory_tokens=max_trajectory_tokens,
+                                     max_sampled_tokens=max_sampled_tokens),
     )
     return env, msg_env

@@ -13,6 +13,7 @@ import asyncio
 import hashlib
 import json
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -62,6 +63,10 @@ def ensure_container() -> None:
     )
 
 
+class SandboxError(RuntimeError):
+    """Infrastructure failure (Modal/Docker), NOT a verdict on the program. Never score it as wrong."""
+
+
 @dataclass
 class CompileResult:
     ok: bool
@@ -99,15 +104,15 @@ async def _modal_call(code: str, spec: dict | None) -> dict:
     if _MODAL_SEM is None:
         _MODAL_SEM = asyncio.Semaphore(int(os.environ.get("MODAL_PARALLEL", 100)))
     err = None
-    for attempt in range(3):
+    for attempt in range(5):  # capacity errors (container cap) can last a while: back off up to ~1.5 min
         try:
             async with _MODAL_SEM:
                 return await remote_execute(code, spec)
-        except Exception as e:  # transient infra errors must not count as wrong answers
+        except Exception as e:
             err = e
             print(f"[sandbox/modal] call failed (attempt {attempt + 1}): {type(e).__name__}: {e}", file=sys.stderr, flush=True)
-            await asyncio.sleep(2 + 2 * attempt)
-    raise RuntimeError(f"modal sandbox failed: {err}")
+            await asyncio.sleep(3 * 2 ** attempt * (0.75 + 0.5 * random.random()))
+    raise SandboxError(f"modal sandbox failed: {err}")
 
 
 async def compile_cpp(code: str) -> CompileResult:
@@ -131,9 +136,12 @@ async def compile_cpp(code: str) -> CompileResult:
             ["timeout", str(int(COMPILE_TIMEOUT)), "g++", *CXX_FLAGS, f"/rw/src/{h}.cpp", "-o", f"/rw/bin/{h}"],
             COMPILE_TIMEOUT + 10,
         )
+    (WORK_DIR / "rw" / "src" / f"{h}.cpp").unlink(missing_ok=True)
     if rc != 0:
+        if rc != 1 or "error" not in err.lower():  # timeout(124)/kill(-9)/docker failure: not a compile error
+            raise SandboxError(f"compile infra failure rc={rc}: {err[-300:]}")
         msg = err.replace(f"/rw/src/{h}.cpp", "solution.cpp")[:8000] or "Compilation failed"
-        err_host.write_text(msg)
+        err_host.write_text(msg)  # cache only genuine compiler diagnostics
         return CompileResult(False, None, msg)
     os.replace(WORK_DIR / "rw" / "bin" / h, bin_host)
     return CompileResult(True, f"/work/bin/{h}", "")
@@ -145,10 +153,9 @@ def _to_container(p: Path) -> str:
 
 async def _run_spec(spec: dict, n: int) -> list[RunResult]:
     if spec["binary"].startswith("modal:"):
-        try:
-            r = await _modal_call(_CODE[spec["binary"][6:]], spec)
-        except RuntimeError as e:
-            return [RunResult("RE", "", f"sandbox error: {e}", -1, 0.0, False)]
+        r = await _modal_call(_CODE[spec["binary"][6:]], spec)  # raises SandboxError
+        if "results" not in r:  # container-side recompile failed (e.g. OOM): infra, not a verdict
+            raise SandboxError(f"modal run without results: {str(r)[:300]}")
         return [RunResult(x["status"], x.get("stdout", ""), x["stderr"], x["exit_code"], x["time"], x["passed"])
                 for x in r["results"]]
     run_id = uuid.uuid4().hex[:12]
@@ -163,7 +170,7 @@ async def _run_spec(spec: dict, n: int) -> list[RunResult]:
         print(f"[sandbox] runner failed (attempt {attempt + 1}, rc={rc}): {err[-300:]}", file=sys.stderr, flush=True)
         await asyncio.sleep(1 + attempt)
     if rc != 0:
-        return [RunResult("RE", "", f"sandbox error: {err[-500:]}", rc, 0.0, False)]
+        raise SandboxError(f"docker runner failed rc={rc}: {err[-500:]}")
     return [RunResult(r["status"], r.get("stdout", ""), r["stderr"], r["exit_code"], r["time"], r["passed"])
             for r in json.loads(out)]
 

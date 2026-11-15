@@ -27,7 +27,7 @@ from tinker_cookbook.rl.types import Env, EnvGroupBuilder, Metrics, RLDataset, R
 from tinker_cookbook.tokenizer_utils import get_tokenizer
 
 from harness import sandbox
-from harness.env import THINK_SHORT, build_env, grade, hint_text
+from harness.env import MAX_TURNS, THINK_SHORT, build_env, grade_with_retry, hint_text
 from harness.problems import load
 
 
@@ -41,12 +41,12 @@ class CPEnvGroupBuilder(EnvGroupBuilder):
     model_name: str
     renderer_name: str
     group_size: int
-    max_turns: int = 100
-    max_trajectory_tokens: int = 48_000
-    max_generation_tokens: int = 16_384
+    max_turns: int = MAX_TURNS
+    max_trajectory_tokens: int = 64_000
+    max_generation_tokens: int = 32_768
     score_mode: str = "subtask"
     turn_bonus: float = 0.04
-    turn_bonus_horizon: int = 10
+    turn_bonus_horizon: int = MAX_TURNS + 1
     hint: str = ""  # eval-only truncation hint appended to the statement
     tag: str = "train"
     # "think short" system instruction given to each rollout with this probability (annealed to 0 over
@@ -79,12 +79,13 @@ class CPEnvGroupBuilder(EnvGroupBuilder):
         self, trajectory_group: list[Trajectory], env_group: Sequence[Env]
     ) -> list[tuple[float, Metrics]]:
         out = []
-        for i, env in enumerate(env_group):
+        for traj, env in zip(trajectory_group, env_group):
             msg_env = env.message_env
             tools = msg_env.cp_tools
-            g = await grade(self.problem, tools.last_compiled_code, self.score_mode)
+            # raises SandboxError if the sandbox stays down -> group is dropped, never trained on a fake 0
+            g = await grade_with_retry(self.problem, tools.last_compiled_code, self.score_mode)
             score = g["score"]
-            turns = msg_env._turn_count
+            turns = len(traj.transitions)  # every sampling call, incl. length-truncated turns
             bonus = 0.0
             if score == 100.0 and self.turn_bonus:
                 bonus = self.turn_bonus * max(0.0, 1.0 - turns / self.turn_bonus_horizon)
@@ -98,7 +99,8 @@ class CPEnvGroupBuilder(EnvGroupBuilder):
                 "n_submissions": float(tools.n_submissions),
                 "n_runs": float(tools.n_runs),
                 "turn_bonus": bonus,
-                "instructed": float(self._instructed[i]) if i < len(getattr(self, "_instructed", [])) else 0.0,
+                "instructed": float(msg_env.instructed),
+                "infra_errors": float(tools.infra_errors),
                 "instruct_prob": self.instruct_prob,
             }))
         return out
@@ -129,12 +131,12 @@ class CPDatasetBuilder(RLDatasetBuilder):
     eval_problems_path: str | None = None
     epochs: int = 1
     seed: int = 0
-    max_turns: int = 100
-    max_trajectory_tokens: int = 48_000
-    max_generation_tokens: int = 16_384
+    max_turns: int = MAX_TURNS
+    max_trajectory_tokens: int = 64_000
+    max_generation_tokens: int = 32_768
     score_mode: str = "subtask"
     turn_bonus: float = 0.04
-    turn_bonus_horizon: int = 10
+    turn_bonus_horizon: int = MAX_TURNS + 1
     exclude_ids: str = ""  # comma-separated problem ids to skip (e.g. eval overlap)
     eval_group_size: int = 4  # unhinted rollouts per held-out problem (tag "heldout")
     solutions_path: str | None = None  # if set, add 1 hinted rollout per held-out problem (tag "hinted")

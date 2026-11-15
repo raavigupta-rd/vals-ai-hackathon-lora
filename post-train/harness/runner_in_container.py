@@ -99,8 +99,10 @@ def run_one(binary, stdin_path_or_bytes, tl, mem, out_path, timing="cpu"):
         fin.close()
         ferr.seek(0)
         err = ferr.read(SHOW).decode(errors="replace")
-    if timed_out or dt > tl or rc in (-24, -9):  # -24 = SIGXCPU from RLIMIT_CPU, -9 = wall-clock kill
+    if timed_out or dt > tl or rc == -24:  # -24 = SIGXCPU from RLIMIT_CPU
         status = "TLE"
+    elif rc == -9:  # SIGKILL that wasn't our timer: cgroup OOM killer
+        status = "MLE"
     elif rc == -25:
         status = "OLE"
     elif rc != 0:
@@ -109,6 +111,17 @@ def run_one(binary, stdin_path_or_bytes, tl, mem, out_path, timing="cpu"):
         status = "OK"
     return {"status": status, "time": round(dt, 4), "exit_code": rc, "stderr": err,
             "utime": round(ru.ru_utime, 4), "stime": round(ru.ru_stime, 4), "wall": round(wall, 4)}
+
+
+def run_one_judged(binary, stdin, tl, mem, out_path, timing="cpu"):
+    """run_one, but under wall timing a TLE that finished (not killed) is re-run once and the
+    faster run kept: guards against brief contention from a co-located input."""
+    r = run_one(binary, stdin, tl, mem, out_path, timing)
+    if timing == "wall" and r["status"] == "TLE" and r["exit_code"] == 0:
+        r2 = run_one(binary, stdin, tl, mem, out_path, timing)
+        if r2["time"] < r["time"]:
+            r = r2
+    return r
 
 
 def check(checker, in_path, exp_path, got_path):
@@ -139,14 +152,14 @@ def run_spec(spec):
     res = []
     if spec.get("tests") is None:
         op = os.path.join(out_dir, "0.out")
-        r = run_one(binary, spec["stdin_file"], tl, mem, op, spec.get("timing", "cpu"))
+        r = run_one_judged(binary, spec["stdin_file"], tl, mem, op, spec.get("timing", "cpu"))
         r["stdout"] = head(op)
         r["passed"] = None
         res.append(r)
     else:
         for i, t in enumerate(spec["tests"]):
             op = os.path.join(out_dir, f"{i}.out")
-            r = run_one(binary, t["in"], tl, mem, op, spec.get("timing", "cpu"))
+            r = run_one_judged(binary, t["in"], tl, mem, op, spec.get("timing", "cpu"))
             if r["status"] == "OK":
                 r["passed"] = check(spec.get("checker"), t["in"], t["out"], op)
                 if not r["passed"]:

@@ -57,14 +57,14 @@ class CLIConfig:
     max_trajectory_tokens: int = 64_000  # Qwen3.5-9B on Tinker has a 64K context
     think_short_p0: float = 1.0
     think_short_anneal_steps: int = 6
-    max_turns: int = 100
+    max_turns: int = 5  # Vals endpoint check: answer (EXIT) within 5 turns
     score_mode: str = "subtask"
     turn_bonus: float = 0.04
-    turn_bonus_horizon: int = 10
+    turn_bonus_horizon: int = 6
     remove_constant_reward_groups: bool = True
 
-    save_every: int = 5
     eval_every: int = 2
+    save_every: int | None = None  # defaults to eval_every so every evaluated step has a checkpoint
     log_path: str | None = None
     wandb_project: str | None = None
     behavior_if_log_dir_exists: cli_utils.LogdirBehavior = "ask"
@@ -91,12 +91,14 @@ async def cli_main(c: CLIConfig) -> None:
         learning_rate=c.learning_rate, dataset_builder=dataset_builder, model_name=c.model_name,
         recipe_name="cp_rl", renderer_name=renderer_name, lora_rank=c.lora_rank, max_tokens=c.max_tokens,
         temperature=c.temperature, kl_penalty_coef=c.kl_penalty_coef, log_path=log_path,
-        load_checkpoint_path=c.load_checkpoint_path, save_every=c.save_every, eval_every=c.eval_every,
+        load_checkpoint_path=c.load_checkpoint_path, save_every=c.save_every or c.eval_every, eval_every=c.eval_every,
         max_steps=c.max_steps, remove_constant_reward_groups=c.remove_constant_reward_groups,
         wandb_project=c.wandb_project, wandb_name=run_name, session_name=run_name,
         rollout_error_tolerance=RetryOnFailure(max_retries=1),
     )
     cli_utils.check_log_dir(log_path, behavior_if_exists=c.behavior_if_log_dir_exists)
+    Path(log_path).mkdir(parents=True, exist_ok=True)
+    (Path(log_path) / "train.pid").write_text(str(os.getpid()))  # for scripts/rl_watchdog.py
     print(f"log_path={log_path}")
     await main(config)
 

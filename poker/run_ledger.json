@@ -341,8 +341,32 @@
       "tasks": 846,
       "steps": 12,
       "parent": "base",
+      "status": "succeeded",
+      "source": "teacher v4 (EVIDENCE on): 140 validated corrections, 39 agreements, 537 anchors; ablation of 'change base only on strong evidence' vs r2b",
+      "checkpoints": {
+        "step6": "ckpt_3dbecbb04e8c",
+        "step12": "ckpt_9c5e93555817"
+      }
+    },
+    {
+      "id": "train_fd381ae8a6a8",
+      "kind": "opsd_kl_r3a",
+      "dataset": "pokerbots-opsdkl-r3a",
+      "steps": 6,
+      "batch": 64,
+      "parent": "base",
       "status": "running",
-      "source": "teacher v4 (EVIDENCE on): 140 validated corrections, 39 agreements, 537 anchors; ablation of 'change base only on strong evidence' vs r2b"
+      "source": "teams-only teacher v3 + steal + stab; 200 corrections (410 tasks) incl. preflop rules; 1230 anchors"
+    },
+    {
+      "id": "train_19b43f48151a",
+      "kind": "opsd_kl_r3b",
+      "dataset": "pokerbots-opsdkl-r3b",
+      "steps": 6,
+      "batch": 64,
+      "parent": "base",
+      "status": "running",
+      "source": "same as r3a but preflop rules off (allin, own_shove, postflop, steal, stab); 55 corrections, 360 anchors"
     }
   ],
   "training_slot": {
@@ -481,6 +505,17 @@
         "pass": false
       },
       "decision": "recommend submitting c2b-s12; deleted s10, c2a-s6, c2a-s12, c2b-s6"
+    },
+    "round2": {
+      "file": "data/gate/round2.json",
+      "ref": "c2b-s12",
+      "finding": "all base-parent arms below c2b-s12 on teacher agreement, but the lead is preflop-only (rules Claude disputes); base best on allin (78%) and postflop (80%); OPSD-KL r2c-s3 kept base validity and allin skill, SFT r2b-s12 lost allin skill; r2b-s6 broken (84% valid)",
+      "deleted": [
+        "r2b-s6",
+        "r2b-s12",
+        "r2c-s6",
+        "r2c-s3"
+      ]
     }
   },
   "arena_entry": {
@@ -496,5 +531,10 @@
   },
   "notes": [
     "Sat 19:30: r2a (bust fix only) has just 6 validated corrections from arena data; synthetic shove spots via scripted shovers in play_local are being built."
+  ],
+  "findings": [
+    "Talk ablation (62 arena all-in spots x4, base): call rate 56% with talk vs 53% without - talk is not the driver.",
+    "Claude rater calibration vs teacher: 79% postflop, 73% all-in, 38-47% preflop; preflop rules are contested; gate is circular for them.",
+    "Final tournament has no house bots: teacher field ranges now LLM-team only."
   ]
 }

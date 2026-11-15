@@ -87,6 +87,10 @@ def correction_reasoning(verdict: dict, hand_code: str) -> str:
                 f"most calling ranges. Busting ranks last. Fold and wait for a better spot.")
     if rule == "river_fold":
         return "On the river a bet this size is rarely a bluff; a pair is not enough. Fold."
+    if rule == "monster_call":
+        return "I have a very strong hand and the price is fine; folding here gives up a pot I am well ahead in. Call."
+    if rule == "river_air_fold":
+        return "On the river my hand has nothing; calling only beats a bluff, and bets here are rarely bluffs. Fold."
     if rule == "steal":
         return "Folded to me in late position: the blinds fold most of the time to a small raise. Raise."
     if rule == "stab":
@@ -227,7 +231,7 @@ def main() -> None:
     parser.add_argument("--abstain-ratio", type=float, default=2.0)
     parser.add_argument("--template-weight", type=float, default=0.0,
                         help="weight of unvalidated fixed-sentence corrections; 0 drops them (default)")
-    parser.add_argument("--exploits", help="comma list of teacher v5 exploit rules to enable: river_fold,steal,stab,oversize")
+    parser.add_argument("--exploits", help="comma list of teacher v5 exploit rules to enable: river_fold,steal,stab,oversize,monster_call,river_air_fold")
     parser.add_argument("--cleanup-ratio", type=float, default=0.3,
                         help="cleanup-turn anchors per action record (keeps update_scratchpad working)")
     parser.add_argument("--cleanup-deployment", default="infer_d3d2b6b92171",

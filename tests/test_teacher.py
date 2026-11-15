@@ -620,3 +620,96 @@ def test_oversize_ignores_mild_overshoots_below_the_tolerance(exploits):
     assert _oversize([_act(3, "raise", 10, 3, 2, -10, 190)])["rule"] != "oversize"  # 5bb open: 10 <= 1.5 x 7
     v = _oversize([_act(3, "raise", 11, 3, 2, -11, 189)])
     assert v["rule"] == "oversize" and v["target_amount"] == 7
+
+
+# ---- exploit rules: monster_call and river_air_fold; OFF unless named in EXPLOITS ----
+
+PAIRED_BOARD = ("Ks", "Kd", "4h", "2c", "3d")
+
+
+def _street_db(street, our_cards, to_call=80, pot=180, board=FLOP_BOARD, action="fold", seats=2):
+    acts = [_pa(0, street, "bet", to_call, pot - to_call, 0, -to_call, 100),
+            _pa(1, street, action, None, pot, to_call, -to_call if action == "call" else 0, 100)]
+    cards = {0: ["5h", "6h"], 1: our_cards, 2: ["8h", "8s"]}
+    return _xdb([_phand(1, {s: cards[s] for s in range(seats)}, acts, board=board, seats=tuple(range(seats)))],
+                nseats=seats)
+
+
+def test_monster_call_is_off_by_default():
+    v = judge(_street_db("river", ["Kh", "Kd"]), "m_x", 1, seat=1, action_index=0)
+    assert v["rule"] != "monster_call"
+
+
+def test_monster_call_prefers_a_call_when_we_fold_a_strong_hand(exploits):
+    exploits("monster_call")
+    for street in ("flop", "turn", "river"):
+        for cards in (["Kh", "Kd"], ["Kh", "9h"]):  # a set, two pair with both hole cards
+            v = judge(_street_db(street, cards), "m_x", 1, seat=1, action_index=0)
+            assert v["rule"] == "monster_call" and v["preferred"] == "call" and v["agree"] is False, (street, cards)
+            assert v["actual"] == "fold"
+
+
+def test_monster_call_works_multiway(exploits):
+    exploits("monster_call")
+    v = judge(_street_db("flop", ["Kh", "Kd"], seats=3), "m_x", 1, seat=1, action_index=0)
+    assert v["rule"] == "monster_call" and v["preferred"] == "call"
+
+
+def test_monster_call_price_gate(exploits):
+    exploits("monster_call")
+    ok = judge(_street_db("river", ["Kh", "Kd"], to_call=100, pot=200), "m_x", 1, seat=1, action_index=0)  # 0.33
+    assert ok["rule"] == "monster_call"
+    huge = judge(_street_db("river", ["Kh", "Kd"], to_call=300, pot=350), "m_x", 1, seat=1, action_index=0)  # 0.46
+    assert huge["rule"] != "monster_call"
+
+
+def test_monster_call_abstains_on_weak_two_pair_and_non_strong_hands(exploits):
+    exploits("monster_call")
+    board_pair_two_pair = judge(_street_db("river", ["4c", "7d"], board=PAIRED_BOARD), "m_x", 1, seat=1, action_index=0)
+    assert board_pair_two_pair["rule"] != "monster_call"
+    pocket_plus_board_pair = judge(_street_db("river", ["9h", "9c"], board=PAIRED_BOARD), "m_x", 1, seat=1,
+                                   action_index=0)
+    assert pocket_plus_board_pair["rule"] != "monster_call"
+    trips_on_paired_board = judge(_street_db("river", ["Kh", "7d"], board=PAIRED_BOARD), "m_x", 1, seat=1,
+                                  action_index=0)
+    assert trips_on_paired_board["rule"] == "monster_call"  # trips or better always counts
+    top_pair = judge(_street_db("river", ["Kh", "7d"]), "m_x", 1, seat=1, action_index=0)
+    assert top_pair["rule"] != "monster_call"
+    called = judge(_street_db("river", ["Kh", "Kd"], action="call"), "m_x", 1, seat=1, action_index=0)
+    assert called["rule"] != "monster_call"  # only folds are corrected
+
+
+def test_monster_call_beats_postflop_call_when_enabled(exploits):
+    base = judge(_postflop_db(["Kh", "Kd"], "fold"), "m_p", 50, seat=1, action_index=0)
+    assert base["rule"] == "postflop_call"
+    exploits("monster_call")
+    v = judge(_postflop_db(["Kh", "Kd"], "fold"), "m_p", 50, seat=1, action_index=0)
+    assert v["rule"] == "monster_call" and v["preferred"] == "call"
+    junk = judge(_postflop_db(["7h", "2s"], "call"), "m_p", 50, seat=1, action_index=0)
+    assert junk["rule"] == "postflop_call"  # falls through when the rule does not fire
+
+
+def test_river_air_fold_is_off_by_default():
+    v = judge(_street_db("river", ["7h", "6s"], action="call"), "m_x", 1, seat=1, action_index=0)
+    assert v["rule"] != "river_air_fold"
+
+
+def test_river_air_fold_prefers_fold_for_a_pure_air_call(exploits):
+    exploits("river_air_fold")
+    for board in (FLOP_BOARD, PAIRED_BOARD):  # a pair only on the board is still air
+        v = judge(_street_db("river", ["7h", "6s"], board=board, action="call"), "m_x", 1, seat=1, action_index=0)
+        assert v["rule"] == "river_air_fold" and v["preferred"] == "fold" and v["agree"] is False, board
+        assert v["actual"] == "call"
+    multi = judge(_street_db("river", ["7h", "6s"], action="call", seats=3), "m_x", 1, seat=1, action_index=0)
+    assert multi["rule"] == "river_air_fold"
+
+
+def test_river_air_fold_leaves_pairs_made_hands_folds_and_earlier_streets_alone(exploits):
+    exploits("river_air_fold")
+    for cards in (["Kh", "7d"], ["9h", "7d"], ["Kh", "Kd"], ["5s", "6s"]):  # top pair, pair, set, straight
+        v = judge(_street_db("river", cards, action="call"), "m_x", 1, seat=1, action_index=0)
+        assert v["rule"] != "river_air_fold", cards
+    folded = judge(_street_db("river", ["7h", "6s"], action="fold"), "m_x", 1, seat=1, action_index=0)
+    assert folded["rule"] != "river_air_fold"
+    turn = judge(_street_db("turn", ["7h", "6s"], action="call"), "m_x", 1, seat=1, action_index=0)
+    assert turn["rule"] != "river_air_fold"

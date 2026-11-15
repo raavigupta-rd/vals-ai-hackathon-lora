@@ -84,7 +84,7 @@ def equity_vs_range(hole: list[str], codes: list[str], board: list[str] = (), sa
     return _equity(tuple(hole), tuple(sorted(set(codes))), tuple(board), samples)
 
 
-# v5 exploit rules, each on only when named here, e.g. EXPLOITS = {"river_fold", "steal", "stab"}.
+# v5 exploit rules, each on only when named here, e.g. EXPLOITS = {"river_fold", "steal", "stab"}; also "oversize", "monster_call", "river_air_fold".
 EXPLOITS: set[str] = set()
 STEAL_RANGES = {
     "CO": "22+ A2s+ K5s+ Q8s+ J8s+ T8s+ 97s+ 86s+ 76s 65s A7o+ K9o+ QTo+ JTo",
@@ -541,6 +541,10 @@ def judge(con, match_id: str, hand: int, seat: int, action_index: int) -> dict:
     verdict["actual"] = actual
     if (free := free_fold_verdict(row["to_call"], actual)):
         return verdict | {"rule": "free_fold", "preferred": free, "agree": False}
+    if "monster_call" in EXPLOITS and (v := _monster_call(con, row, verdict, match_id, hand, seat)):
+        return v
+    if "river_air_fold" in EXPLOITS and (v := _river_air_fold(con, row, verdict, match_id, hand, seat)):
+        return v
     if "river_fold" in EXPLOITS and (v := _river_fold(con, row, verdict, match_id, hand, seat)):
         return v
     if "stab" in EXPLOITS and (v := _stab(con, rows, row, verdict, match_id, hand, seat)):
@@ -632,6 +636,40 @@ def _river_fold(con, row, verdict, match_id, hand, seat) -> dict | None:
     if not hole or not board or strength_class(hole, board) not in ("pair", "top_pair"):
         return None
     return verdict | {"rule": "river_fold", "preferred": "fold", "agree": False}
+
+
+MONSTER_MAX_PRICE = 0.45
+
+
+def _monster_call(con, row, verdict, match_id, hand, seat) -> dict | None:
+    """Exploit `monster_call`: postflop, we fold a strong hand to a bet at a price of 0.45 or less. Call.
+
+    Two pair counts only when the board is unpaired (both hole cards pair the board); otherwise trips or better.
+    """
+    from pokerkit import Card, Label, StandardHighHand
+
+    if row["street"] not in BOARD_CARDS or row["action"] != "fold" or (row["to_call"] or 0) <= 0:
+        return None
+    if row["to_call"] / (row["pot_before"] + row["to_call"]) > MONSTER_MAX_PRICE:
+        return None
+    hole, board = _hole(con, match_id, hand, seat), _board_for(con, match_id, hand, row["street"])
+    if not hole or not board or strength_class(hole, board) != "strong":
+        return None
+    rank = _label_rank(StandardHighHand.from_game(list(Card.parse("".join(hole))),
+                                                  list(Card.parse("".join(board)))).entry.label)
+    if rank < _label_rank(Label.THREE_OF_A_KIND) and _board_category(board) != _label_rank(Label.HIGH_CARD):
+        return None
+    return verdict | {"rule": "monster_call", "preferred": "call", "agree": False}
+
+
+def _river_air_fold(con, row, verdict, match_id, hand, seat) -> dict | None:
+    """Exploit `river_air_fold`: we call a river bet with pure air (no pair of our own, no made straight or better)."""
+    if row["street"] != "river" or row["action"] != "call" or (row["to_call"] or 0) <= 0:
+        return None
+    hole, board = _hole(con, match_id, hand, seat), _board_for(con, match_id, hand, "river")
+    if not hole or not board or strength_class(hole, board) != "air":
+        return None
+    return verdict | {"rule": "river_air_fold", "preferred": "fold", "agree": False}
 
 
 def _steal(row, before, stack0) -> bool:

@@ -138,6 +138,15 @@ def test_exploit_rules_have_plain_correction_text_without_data_talk():
         assert not any(w in text.lower() for w in ("data", "field", "statistic", "team", "sample"))
 
 
+def test_new_exploit_corrections_are_plain_poker():
+    for rule, pref, word in (("monster_call", "call", "Call"), ("river_air_fold", "fold", "Fold")):
+        text = correction_reasoning({"rule": rule, "preferred": pref}, hand_code="KK")
+        assert text.endswith(word + ".") and len(text) < 300
+        assert not any(w in text.lower() for w in ("data", "field", "statistic", "team", "sample", "percent"))
+    assert _correction_args({"rule": "monster_call", "preferred": "call"}, {}) == {"action": "call"}
+    assert _correction_args({"rule": "river_air_fold", "preferred": "fold"}, {}) == {"action": "fold"}
+
+
 def test_exploit_correction_args_are_legal():
     assert _correction_args({"rule": "river_fold", "preferred": "fold"}, {}) == {"action": "fold"}
     steal = _correction_args({"rule": "steal", "preferred": "raise"},

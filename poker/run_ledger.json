@@ -355,7 +355,7 @@
       "steps": 6,
       "batch": 64,
       "parent": "base",
-      "status": "running",
+      "status": "succeeded",
       "source": "teams-only teacher v3 + steal + stab; 200 corrections (410 tasks) incl. preflop rules; 1230 anchors"
     },
     {
@@ -365,8 +365,24 @@
       "steps": 6,
       "batch": 64,
       "parent": "base",
-      "status": "running",
+      "status": "succeeded",
       "source": "same as r3a but preflop rules off (allin, own_shove, postflop, steal, stab); 55 corrections, 360 anchors"
+    },
+    {
+      "id": "train_6fed874d4103",
+      "kind": "opsd_kl_r3c",
+      "status": "stopped",
+      "note": "stopped after round-3 gate showed 6-step OPSD-KL barely moves base; relaunched with 18 steps"
+    },
+    {
+      "id": "train_f37243675c74",
+      "kind": "opsd_kl_r3c_18",
+      "dataset": "pokerbots-opsdkl-r3c",
+      "steps": 18,
+      "batch": 64,
+      "parent": "base",
+      "status": "running",
+      "source": "teams-only v3 + steal + stab + oversize, shortest validated base replies, no say; 204 corrections (420 tasks), 1260 anchors"
     }
   ],
   "training_slot": {
@@ -516,6 +532,12 @@
         "r2c-s6",
         "r2c-s3"
       ]
+    },
+    "round3": {
+      "file": "data/gate/round3.json",
+      "ref": "c2b-s12",
+      "finding": "6-step OPSD-KL arms stay at base (52-56% vs base 53%); c2b-s12 still best (62%, all-in call rate 51% vs base 61%); all r3 deleted",
+      "arena_c2b_s12": "8 matches, 0 busts, mean place 3.62 [2.25,4.75], +3.2 bb/match"
     }
   },
   "arena_entry": {
@@ -535,6 +557,7 @@
   "findings": [
     "Talk ablation (62 arena all-in spots x4, base): call rate 56% with talk vs 53% without - talk is not the driver.",
     "Claude rater calibration vs teacher: 79% postflop, 73% all-in, 38-47% preflop; preflop rules are contested; gate is circular for them.",
-    "Final tournament has no house bots: teacher field ranges now LLM-team only."
+    "Final tournament has no house bots: teacher field ranges now LLM-team only.",
+    "Vals Staff: small preflop pots (no raise >10bb except 1), no table talk, ~450 tokens; 7 matches, 0 busts, mean place 2.57."
   ]
 }

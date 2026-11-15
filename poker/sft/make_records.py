@@ -102,7 +102,7 @@ def _correction_args(verdict: dict, record: dict) -> dict | None:
 
 
 def select(rows, *, cycle: int, abstain_ratio: float = 2.0, seed: int = 0, resampled: dict | None = None,
-           template_weight: float = TEMPLATE_WEIGHT):
+           template_weight: float = TEMPLATE_WEIGHT, weight_scale: float = 1.0):
     """rows: (joined record, teacher verdict, hand code). Returns (records, stats)."""
     resampled = resampled or {}
     stats = {"corrections": 0, "resampled": 0, "agreements": 0, "abstain_pool": 0, "abstain_kept": 0, "skipped": 0, "unvalidated_dropped": 0}
@@ -110,7 +110,7 @@ def select(rows, *, cycle: int, abstain_ratio: float = 2.0, seed: int = 0, resam
 
     def base(record, source, weight, target):
         return {"decision_id": record["span_id"], "messages": record["messages"], "target": target,
-                "weight": weight, "source": source, "cycle": cycle}
+                "weight": weight * weight_scale, "source": source, "cycle": cycle}
 
     for record, verdict, code in rows:
         if record.get("cutoff") or _call(record) is None:
@@ -164,6 +164,7 @@ def main() -> None:
     parser.add_argument("--abstain-ratio", type=float, default=2.0)
     parser.add_argument("--template-weight", type=float, default=0.0,
                         help="weight of unvalidated fixed-sentence corrections; 0 drops them (default)")
+    parser.add_argument("--weight-scale", type=float, default=1.0, help="multiply every weight (newer cycles weigh more)")
     parser.add_argument("--resampled", type=Path, help="poker/sft/resample.py output: own-words corrections")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
@@ -188,7 +189,7 @@ def main() -> None:
         from poker.teacher import hand_code
         rows.append((record, verdict, hand_code([row[0], row[1]]) if row else "this hand"))
     records, stats = select(rows, cycle=args.cycle, abstain_ratio=args.abstain_ratio, resampled=resampled,
-                            template_weight=args.template_weight)
+                            template_weight=args.template_weight, weight_scale=args.weight_scale)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", encoding="utf-8") as stream:
         for record in records:

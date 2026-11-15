@@ -291,6 +291,17 @@
       "base_checkpoint": "ckpt_46cfa1869701",
       "status": "running",
       "source": "teacher v2 on base + early s10 arena traces; 85 corrections (76 own-words resampled from sft-c1-s10), 58 agreements, 429 clean"
+    },
+    {
+      "id": "train_7917a42dc792",
+      "kind": "sft_cycle2b",
+      "dataset": "pokerbots-sft-c2b",
+      "tasks": 1261,
+      "steps": 12,
+      "checkpoint_every": 6,
+      "base_checkpoint": "ckpt_46cfa1869701",
+      "status": "running",
+      "source": "teacher v3, field-level ranges; validated own-words corrections only (185, 156 plain+hinted rerolls); sft-c1-s10 records x2, base x1"
     }
   ],
   "training_slot": {
@@ -301,8 +312,8 @@
         "kind": "sft_cycle2a"
       },
       {
-        "train_id": null,
-        "kind": "sft_cycle2b (teacher v3), pending"
+        "train_id": "train_7917a42dc792",
+        "kind": "sft_cycle2b"
       }
     ],
     "rule": "Two 4-GPU SFT runs may run together while only base and sft-c1-s10 are deployed (2+4+4=10)."

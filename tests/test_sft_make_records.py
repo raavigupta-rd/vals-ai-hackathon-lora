@@ -96,3 +96,10 @@ def test_a_resampled_reply_is_ignored_when_the_teachers_preference_changed():
     records, stats = select([(joined("x", "fold"), verdict, "KK")], cycle=3, abstain_ratio=0, seed=0,
                             resampled=stale, template_weight=0)
     assert records == [] and stats["unvalidated_dropped"] == 1
+
+
+def test_weight_scale_multiplies_every_record_weight():
+    rows = [(joined(f"a{i}", "check"), {"rule": None, "preferred": None, "agree": None}, "T9s") for i in range(3)]
+    rows.append((joined("g", "fold"), {"rule": "allin_call", "preferred": "fold", "agree": True}, "72o"))
+    records, _ = select(rows, cycle=3, abstain_ratio=5, seed=0, weight_scale=2.0)
+    assert {r["weight"] for r in records} == {2.0}

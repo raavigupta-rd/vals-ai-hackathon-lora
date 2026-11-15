@@ -333,6 +333,16 @@
       "parent": "Qwen/Qwen3.6-35B-A3B base",
       "status": "running",
       "source": "same corrections as r2b (r2b.jsonl), OPSD with coaching hints on corrections and bare neutral line on 3x anchors (~KL to base); 384 decisions, matched to r2b's 12x32"
+    },
+    {
+      "id": "train_5f083096ebd3",
+      "kind": "sft_r2d",
+      "dataset": "pokerbots-sft-r2d",
+      "tasks": 846,
+      "steps": 12,
+      "parent": "base",
+      "status": "running",
+      "source": "teacher v4 (EVIDENCE on): 140 validated corrections, 39 agreements, 537 anchors; ablation of 'change base only on strong evidence' vs r2b"
     }
   ],
   "training_slot": {

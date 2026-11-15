@@ -68,6 +68,23 @@ Every wave: same parent checkpoint for both slots, gate against the current entr
 agreement not clearly worse, mixing kept), `play_local --opponents bots`, then A submits the winner. Final pick by
 Sunday 12:30 PM PST from repeated evidence, not the newest checkpoint.
 
+## What the improving teams do (Sat ~8:30 PM, arena DB)
+
+Teams that improved between submissions (Friends v2, Accord, and early Accord v2 / Vals Staff) share three traits:
+
+| Submission | Matches | VPIP | Calls vs all-in | Bust rate | Mean place | Median tokens |
+|---|---|---|---|---|---|---|
+| Friends v2 | 33 | 16% | 31% | 9% | 3.33 | 352 |
+| Accord base | 21 | 38% | 33% | 14% | 3.00 | 620 |
+| Accord v2 / Vals Staff | 2 each | 18-30% | - | 0% | 2.0-2.5 | 357-424 |
+| LoRA base (ours) | 36 | 41% | 58% | 31% | 3.67 | 647 |
+| LoRA sft-c1-s10 (retired) | 21 | 45% | 74% | 52% | 4.33 | 524 |
+
+- The all-in call rate tracks the bust rate. Target: our all-in call rate from 58% down to about 30-35%.
+- Tight preflop is right for this format, which supports the v3 preflop rules (arm 3A) over the rater's looser view.
+- They think briefly. `resample.py --shortest` now keeps the shortest valid target.
+- The final field will be tighter than tonight's ladder. Weight each team's latest submission when computing exploit stats; steals gain, value-shoves against loose callers lose.
+
 ## The iteration cycle (decided Sat ~4:15 PM)
 
 Decisions from the user: the organizers confirmed we may use AC2 SFT (`SFTConfig`). Submissions go through the AC2

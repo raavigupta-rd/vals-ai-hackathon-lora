@@ -19,7 +19,25 @@
       "status": "succeeded",
       "games": 4,
       "policy_format_error_games": 0,
-      "ev_bb_per_hand": -1.875
+      "ev_bb_per_hand": -1.875,
+      "results": {
+        "games": 4,
+        "games_with_chip_results": 4,
+        "hands": 4,
+        "ev_bb_per_hand": -1.875,
+        "ci95": 4.408,
+        "realized_bb_per_hand": -1.875,
+        "failed_game_rate": 0.0,
+        "policy_decisions": 8,
+        "policy_format_errors": 0,
+        "decision_failure_rate": 0.0,
+        "mean_final_place": 3.5,
+        "games_with_place": 4,
+        "bust_rate": null,
+        "games_with_bust_status": 0,
+        "format_error_hands": 0.0
+      },
+      "observed_at": "2026-11-14T23:54:17.138732+00:00"
     },
     {
       "id": "eval_9f9ec615687b",
@@ -28,7 +46,25 @@
       "status": "running",
       "created_by": "existing A work",
       "grading_timeout_seconds": 900,
-      "max_parallel": 32
+      "max_parallel": 32,
+      "results": {
+        "games": 160,
+        "games_with_chip_results": 160,
+        "hands": 160,
+        "ev_bb_per_hand": 0.644,
+        "ci95": 1.141,
+        "realized_bb_per_hand": 0.644,
+        "failed_game_rate": 0.0063,
+        "policy_decisions": 302,
+        "policy_format_errors": 1,
+        "decision_failure_rate": 0.0033,
+        "mean_final_place": 2.631,
+        "games_with_place": 160,
+        "bust_rate": null,
+        "games_with_bust_status": 0,
+        "format_error_hands": 0.0063
+      },
+      "observed_at": "2026-11-14T23:54:17.138732+00:00"
     },
     {
       "id": "eval_e51ea5b4466a",
@@ -37,12 +73,17 @@
       "status": "running",
       "created_by": "existing A work",
       "grading_timeout_seconds": 900,
-      "max_parallel": 32
+      "max_parallel": 32,
+      "results": {
+        "games": 0,
+        "hands": 0
+      },
+      "observed_at": "2026-11-14T23:54:17.138732+00:00"
     },
     {
       "id": "eval_ce4924764f47",
       "kind": "poker-base-train-20261114",
-      "status": "pending",
+      "status": "running",
       "datasets": [
         {
           "dataset": "pokerbots-train",
@@ -51,7 +92,7 @@
       ],
       "project_version_id": "pver_27a0d106e2f6",
       "created_at": "2026-11-14T23:33:59.500559Z",
-      "observed_at": "2026-11-14T23:34:00.761321+00:00",
+      "observed_at": "2026-11-14T23:54:17.138732+00:00",
       "tags": {
         "dataset": "pokerbots-train",
         "benchmark": "pokerbots",
@@ -62,6 +103,23 @@
       "settings": {
         "max_parallel": 8,
         "grading_timeout_seconds": 900.0
+      },
+      "results": {
+        "games": 25,
+        "games_with_chip_results": 25,
+        "hands": 25,
+        "ev_bb_per_hand": 0.92,
+        "ci95": 0.835,
+        "realized_bb_per_hand": 0.92,
+        "failed_game_rate": 0.0,
+        "policy_decisions": 34,
+        "policy_format_errors": 0,
+        "decision_failure_rate": 0.0,
+        "mean_final_place": 2.08,
+        "games_with_place": 25,
+        "bust_rate": null,
+        "games_with_bust_status": 0,
+        "format_error_hands": 0.0
       }
     },
     {
@@ -76,11 +134,28 @@
       ],
       "project_version_id": "pver_27a0d106e2f6",
       "created_at": "2026-11-14T23:31:33.006913Z",
-      "observed_at": "2026-11-14T23:37:09.218055+00:00",
+      "observed_at": "2026-11-14T23:54:17.138732+00:00",
       "tags": {
         "dataset": "pokerbots-eval",
         "benchmark": "pokerbots",
         "seat_model": "vals-hackathon/base"
+      },
+      "results": {
+        "games": 25,
+        "games_with_chip_results": 25,
+        "hands": 25,
+        "ev_bb_per_hand": -0.86,
+        "ci95": 1.068,
+        "realized_bb_per_hand": -0.86,
+        "failed_game_rate": 0.0,
+        "policy_decisions": 35,
+        "policy_format_errors": 0,
+        "decision_failure_rate": 0.0,
+        "mean_final_place": 3.2,
+        "games_with_place": 25,
+        "bust_rate": null,
+        "games_with_bust_status": 0,
+        "format_error_hands": 0.0
       }
     },
     {
@@ -145,7 +220,41 @@
       "gpu_estimate": 6,
       "long_game_training": false,
       "id": "train_b2dda65e96c4",
-      "status": "queued"
+      "status": "running",
+      "checkpoints": [],
+      "step_metrics": {
+        "train": [
+          {
+            "step": 0,
+            "async_queue/admission_paused": 0.0,
+            "async_queue/admission_paused_s": 0.0,
+            "async_queue/consumed_groups": 0.0,
+            "async_queue/consumed_rollouts": 0.0,
+            "async_queue/dead_groups": 0.0,
+            "async_queue/dead_groups/group_grade": 0.0,
+            "async_queue/dead_groups/probe_decide": 0.0,
+            "async_queue/dead_groups/sample": 0.0,
+            "async_queue/filtered_groups": 0.0,
+            "async_queue/generated_groups": 1.0,
+            "async_queue/generated_rollouts": 4.0,
+            "async_queue/initial_seeded_groups": 2000.0,
+            "async_queue/input_tokens_per_second": 15.72980509839389,
+            "async_queue/leased_intermediate_items": 0.0,
+            "async_queue/leased_samples": 4.0,
+            "async_queue/max_leased_samples": 4.0,
+            "async_queue/max_size_groups": 5.0,
+            "async_queue/queue_size_groups": 1.0,
+            "async_queue/queued_intermediate_items": 0.0,
+            "async_queue/queued_samples": 7992.0,
+            "async_queue/response_tokens_per_second": 12.365893685591246,
+            "async_queue/topped_up_groups": 0.0,
+            "async_queue/total_input_tokens": 6481.0,
+            "async_queue/total_response_tokens": 5095.0,
+            "async_queue/truncated_groups": 0.0
+          }
+        ]
+      },
+      "observed_at": "2026-11-14T23:54:17.138732+00:00"
     }
   ],
   "training_slot": {
@@ -155,7 +264,72 @@
   },
   "publication": {
     "combined_implementation": "593a185",
-    "branch": "poker-b",
-    "remote": "origin"
+    "branch": "poker",
+    "remote": "origin",
+    "workflow": "Shared working branch; poker-a and poker-b retained as historical refs"
+  },
+  "datasets": [
+    {
+      "id": "ds_4d96ffe96abd",
+      "name": "pokerbots-eval",
+      "task_count": 3000,
+      "updated_at": "2026-11-14T22:36:06.043757Z"
+    },
+    {
+      "id": "ds_a96b5f0dcaab",
+      "name": "pokerbots-eval-game",
+      "task_count": 200,
+      "updated_at": "2026-11-14T22:37:35.914792Z"
+    },
+    {
+      "id": "ds_d663468dfda5",
+      "name": "pokerbots-opsd-fast-20261114-pilot-v1",
+      "task_count": 24,
+      "updated_at": "2026-11-14T23:53:21.442642Z"
+    },
+    {
+      "id": "ds_3651bfa37e8b",
+      "name": "pokerbots-select",
+      "task_count": 500,
+      "updated_at": "2026-11-14T22:34:14.404930Z"
+    },
+    {
+      "id": "ds_d6d8326d8a84",
+      "name": "pokerbots-select-game",
+      "task_count": 100,
+      "updated_at": "2026-11-14T22:37:26.407208Z"
+    },
+    {
+      "id": "ds_6c86f1ad3662",
+      "name": "pokerbots-smoke",
+      "task_count": 4,
+      "updated_at": "2026-11-14T22:36:09.276654Z"
+    },
+    {
+      "id": "ds_2b43da64f0cd",
+      "name": "pokerbots-table-smoke",
+      "task_count": 2,
+      "updated_at": "2026-11-14T22:36:12.092705Z"
+    },
+    {
+      "id": "ds_9a85f7a448c8",
+      "name": "pokerbots-train",
+      "task_count": 2000,
+      "updated_at": "2026-11-14T22:33:57.482998Z"
+    },
+    {
+      "id": "ds_d9627bbe715a",
+      "name": "pokerbots-train-game",
+      "task_count": 400,
+      "updated_at": "2026-11-14T22:37:17.402753Z"
+    }
+  ],
+  "observed_at": "2026-11-14T23:54:17.138732+00:00",
+  "submission_schedule": {
+    "timezone": "America/Los_Angeles",
+    "confirmed_by": "user: PST",
+    "cutoff": "2026-11-15T14:00:00-08:00",
+    "selection_target": "2026-11-15T12:30:00-08:00",
+    "submission_target": "2026-11-15T13:15:00-08:00"
   }
 }

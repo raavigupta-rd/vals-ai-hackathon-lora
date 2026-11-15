@@ -1,10 +1,33 @@
 # Poker plan
 
 Vals Hackathon, poker track. Written Sat Nov 14, 1:45 PM, revised through the afternoon. Submissions close Sun
-Nov 15, 2 PM; the Official Tournament runs after that on every team's last submission.
+Nov 15, 2 PM PST (confirmed by the user); the Official Tournament runs after that on every team's last submission.
 
 This started as a data plan and now covers the whole event. Data work never stops: it feeds training the whole
 time. Most of the remaining time goes to the training loop.
+
+## Shared branch and strategy focus
+
+Both people now work on `poker`, per the user's consolidation request. `poker-a` and `poker-b` retain historical
+commits; they are no longer active work branches. Fetch and `git pull --ff-only origin poker` before editing,
+coordinate overlapping files and the single training slot, then commit and push completed work promptly.
+
+The new [strategy reference](README%20%282%29.md) prioritizes reliable legal decisions, replayable public
+trajectories, measured opponent weaknesses, competent preflop/bet sizing, and repeated held-out evaluation.
+Apply those priorities to the confirmed six-seat, 30-hand, final-placement event. Improve expected tournament
+results rather than chasing ladder noise, blind aggression, loose calls or survival at any cost. Keep a robust
+general fallback and select the best evaluated model, not automatically the newest checkpoint.
+
+Capture observable state, action, legal bounds, seed/seat, model/opponent versions, token use and outcomes with
+stable decision/hand/game IDs. Keep unrevealed cards and future information out of student observations. Use
+conditional opponent statistics with sample sizes and uncertainty; test sizing/table-talk hypotheses rather
+than assuming they work. Split evaluation by whole games/seeds and rotate seats. Never label actions good only
+because the hand won. These are the next data/scouting priorities while the current pilot and baselines run.
+
+The strategy document's SFT and on-policy/custom-logprob paths are conditional proposals. Our executable methods
+remain confirmed managed GRPO and data-only offline OPSD; do not assume SFT eligibility, custom losses,
+raw token-logprob access or one_step permission. `poker/CAPABILITIES.md` records the verified constraints.
+Selection by Sunday 12:30 PM, final check/submission target 1:15 PM, and cutoff 2 PM are all PST.
 
 ## Phases
 
@@ -34,7 +57,10 @@ output tokens and maximum 865. Full base measurements remain pending; early succ
 1. Measure base first on `pokerbots-eval`: cut-off rate, tokens per decision, BB per hand.
 2. GRPO on `pokerbots-train` (single hands). A cut-off already scores 0, so GRPO pushes toward replies that finish, with no new code. Single hands are short, so the signal comes fast.
 3. Watch `format_error_hands` and BB per hand at each in-run eval. Stop if BB per hand falls while errors fall.
-4. In parallel, B builds an OPSD set from base's decisions that finished under about 2,500 tokens, with a "think briefly: strength, position, price, then act" hint.
+4. In parallel, B builds an OPSD set from completed base-train tasks and decisions under 2,500 tokens. The first
+   reviewed snapshot is uploaded as `pokerbots-opsd-fast-20261114-pilot-v1` (24 decisions; 20 reviewed, including
+   seven incremental updates). This is a data-path pilot; broaden it as more train tasks complete. Do not run
+   OPSD concurrently with `train_b2dda65e96c4`.
 5. No length penalty in the reward yet. Add one only if cut-offs stay high after the first run.
 
 Targets: cut-off rate under 2%, median reply about 1,500 tokens, 99th percentile under 4,000, BB per hand not worse
@@ -72,7 +98,7 @@ Two people. Each step below names its owner as A or B.
 | Owns | `harness/`, `grading.py`, `rl/`, the arena entry | `poker/`, `opsd/`, opponent profiles, the probe log |
 
 Rules between us
-- Each person works on their own branch off `poker` (`poker-a`, `poker-b`) and merges back through a reviewed PR.
+- Both people work on shared `poker`; preserve local work, pull with `--ff-only`, and coordinate overlapping edits.
 - Only A submits to the arena, so the live entry is never a surprise. B asks A for probe windows.
 - Only one training job runs at a time. Agree in chat whose job is next before launching.
 - A restarts the harness only between runs, since a running run grades with whatever harness is up.

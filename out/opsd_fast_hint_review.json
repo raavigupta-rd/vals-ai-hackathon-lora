@@ -1,0 +1,1252 @@
+{
+  "source_eval": "eval_ce4924764f47",
+  "source_dataset": "pokerbots-train",
+  "manifest": "s3://appliedcompute/ac2/dataset-manifests/org_bd0b476825f0/prj_200dcc41ef41/ds_9a85f7a448c8/ba35921ff3dc708e53d5828b55cb3163c1fe47809e2077fbd8f9b843a2aa817a.jsonl.gz",
+  "counts": {
+    "kept": 24,
+    "cleanup": 18,
+    "format": 0,
+    "truncated": 0,
+    "missing_tokens": 0,
+    "status": 0,
+    "parse": 0,
+    "arguments": 0,
+    "illegal": 0,
+    "decisions": 42,
+    "incomplete_tasks": 8
+  },
+  "decisions": [
+    {
+      "source_trace": "ddec96c228131e19014231547bcd6662",
+      "source_span": "f7d6e0cca5a913bb",
+      "tokens_out": 256,
+      "state": {
+        "seat": 2,
+        "position": 2,
+        "street": "flop",
+        "hole": [
+          "Td",
+          "5d"
+        ],
+        "board": [
+          "4c",
+          "8h",
+          "Jc"
+        ],
+        "pot": 9,
+        "to_call": 4,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 199,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 1,
+            "stack": 194,
+            "bet": 4,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 198,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          }
+        ],
+        "raise_type": "raise",
+        "raise_min": 8,
+        "raise_max": 198
+      },
+      "action": "{\"action\":\"fold\"}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "da2f682245d392398fd53e3f2bb1464b",
+      "source_span": "2bb528ed94a84fe8",
+      "tokens_out": 397,
+      "state": {
+        "seat": 2,
+        "position": 2,
+        "street": "preflop",
+        "hole": [
+          "Td",
+          "5h"
+        ],
+        "board": [],
+        "pot": 3,
+        "to_call": 2,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 199,
+            "bet": 1,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 2,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          }
+        ],
+        "raise_type": "raise",
+        "raise_min": 4,
+        "raise_max": 200
+      },
+      "action": "{\"action\":\"fold\"}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "1312ba65f3c2526a08f521b337ae8a96",
+      "source_span": "a8877fe27e786914",
+      "tokens_out": 472,
+      "state": {
+        "seat": 2,
+        "position": 2,
+        "street": "preflop",
+        "hole": [
+          "6d",
+          "9h"
+        ],
+        "board": [],
+        "pot": 3,
+        "to_call": 2,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 199,
+            "bet": 1,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 2,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          }
+        ],
+        "raise_type": "raise",
+        "raise_min": 4,
+        "raise_max": 200
+      },
+      "action": "{\"action\":\"fold\"}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "1094caa1069f5a6b064a47ee42a5d334",
+      "source_span": "d1cd5cf36e815720",
+      "tokens_out": 337,
+      "state": {
+        "seat": 1,
+        "position": 1,
+        "street": "flop",
+        "hole": [
+          "Jc",
+          "7h"
+        ],
+        "board": [
+          "5c",
+          "8d",
+          "6c"
+        ],
+        "pot": 4,
+        "to_call": 0,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 198,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          }
+        ],
+        "raise_type": "bet",
+        "raise_min": 2,
+        "raise_max": 198
+      },
+      "action": "{\"action\":\"check\"}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "1094caa1069f5a6b064a47ee42a5d334",
+      "source_span": "356ed9e58eae82c0",
+      "tokens_out": 856,
+      "state": {
+        "seat": 1,
+        "position": 1,
+        "street": "preflop",
+        "hole": [
+          "Jc",
+          "7h"
+        ],
+        "board": [],
+        "pot": 4,
+        "to_call": 0,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 198,
+            "bet": 2,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 2,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          }
+        ],
+        "raise_type": "raise",
+        "raise_min": 4,
+        "raise_max": 200
+      },
+      "action": "{\"action\":\"check\",\"amount\":0}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "090e22c89f3741fedf997abb0d16d13a",
+      "source_span": "b468459ef21a1c10",
+      "tokens_out": 205,
+      "state": {
+        "seat": 3,
+        "position": 3,
+        "street": "flop",
+        "hole": [
+          "7d",
+          "7h"
+        ],
+        "board": [
+          "6s",
+          "7c",
+          "7s"
+        ],
+        "pot": 5,
+        "to_call": 0,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 199,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 3,
+            "stack": 198,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          }
+        ],
+        "raise_type": "bet",
+        "raise_min": 2,
+        "raise_max": 198
+      },
+      "action": "{\"action\":\"bet\",\"amount\":4}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "1094caa1069f5a6b064a47ee42a5d334",
+      "source_span": "76ca2cbc1b3d84a6",
+      "tokens_out": 1800,
+      "state": {
+        "seat": 1,
+        "position": 1,
+        "street": "river",
+        "hole": [
+          "Jc",
+          "7h"
+        ],
+        "board": [
+          "5c",
+          "8d",
+          "6c",
+          "4c",
+          "9d"
+        ],
+        "pot": 12,
+        "to_call": 0,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 194,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 194,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          }
+        ],
+        "raise_type": "bet",
+        "raise_min": 2,
+        "raise_max": 194
+      },
+      "action": "{\"action\":\"check\"}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "77b86c20f71d3cadb95846ef0ea5d3f9",
+      "source_span": "f311d6c23c4b1114",
+      "tokens_out": 738,
+      "state": {
+        "seat": 5,
+        "position": 5,
+        "street": "preflop",
+        "hole": [
+          "Td",
+          "7d"
+        ],
+        "board": [],
+        "pot": 3,
+        "to_call": 2,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 199,
+            "bet": 1,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 2,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          }
+        ],
+        "raise_type": "raise",
+        "raise_min": 4,
+        "raise_max": 200
+      },
+      "action": "{\"action\":\"raise\",\"amount\":4}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "9bbe9adbeab9438c53764055f1bb1a16",
+      "source_span": "4bde369cd4d1b299",
+      "tokens_out": 631,
+      "state": {
+        "seat": 4,
+        "position": 4,
+        "street": "preflop",
+        "hole": [
+          "Kc",
+          "6c"
+        ],
+        "board": [],
+        "pot": 3,
+        "to_call": 2,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 199,
+            "bet": 1,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 2,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          }
+        ],
+        "raise_type": "raise",
+        "raise_min": 4,
+        "raise_max": 200
+      },
+      "action": "{\"action\":\"fold\"}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "1094caa1069f5a6b064a47ee42a5d334",
+      "source_span": "2e8231027ddf6fcf",
+      "tokens_out": 1054,
+      "state": {
+        "seat": 1,
+        "position": 1,
+        "street": "turn",
+        "hole": [
+          "Jc",
+          "7h"
+        ],
+        "board": [
+          "5c",
+          "8d",
+          "6c",
+          "4c"
+        ],
+        "pot": 8,
+        "to_call": 4,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 194,
+            "bet": 4,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          }
+        ],
+        "raise_type": "raise",
+        "raise_min": 8,
+        "raise_max": 198
+      },
+      "action": "{\"action\":\"call\",\"amount\":4}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "2746add13e36aaf7c8224aa9a7db2888",
+      "source_span": "cff51f3d3565478d",
+      "tokens_out": 1426,
+      "state": {
+        "seat": 0,
+        "position": 0,
+        "street": "preflop",
+        "hole": [
+          "Jc",
+          "Jd"
+        ],
+        "board": [],
+        "pot": 3,
+        "to_call": 1,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 199,
+            "bet": 1,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 2,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          }
+        ],
+        "raise_type": "raise",
+        "raise_min": 4,
+        "raise_max": 200
+      },
+      "action": "{\"action\":\"raise\",\"amount\":6}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "909262ad00f80d14a987ecac63ac2675",
+      "source_span": "52ed1bdbee57b237",
+      "tokens_out": 755,
+      "state": {
+        "seat": 0,
+        "position": 0,
+        "street": "preflop",
+        "hole": [
+          "6s",
+          "Qs"
+        ],
+        "board": [],
+        "pot": 3,
+        "to_call": 1,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 199,
+            "bet": 1,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 2,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          }
+        ],
+        "raise_type": "raise",
+        "raise_min": 4,
+        "raise_max": 200
+      },
+      "action": "{\"action\":\"call\"}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "909262ad00f80d14a987ecac63ac2675",
+      "source_span": "f1683892235e7867",
+      "tokens_out": 2005,
+      "state": {
+        "seat": 0,
+        "position": 0,
+        "street": "flop",
+        "hole": [
+          "6s",
+          "Qs"
+        ],
+        "board": [
+          "Qh",
+          "3d",
+          "3c"
+        ],
+        "pot": 4,
+        "to_call": 0,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 198,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          }
+        ],
+        "raise_type": "bet",
+        "raise_min": 2,
+        "raise_max": 198
+      },
+      "action": "{\"action\":\"bet\",\"amount\":4}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "090e22c89f3741fedf997abb0d16d13a",
+      "source_span": "693b28af4aa6a9e3",
+      "tokens_out": 477,
+      "state": {
+        "seat": 3,
+        "position": 3,
+        "street": "preflop",
+        "hole": [
+          "7d",
+          "7h"
+        ],
+        "board": [],
+        "pot": 3,
+        "to_call": 2,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 199,
+            "bet": 1,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 2,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          }
+        ],
+        "raise_type": "raise",
+        "raise_min": 4,
+        "raise_max": 200
+      },
+      "action": "{\"action\":\"call\",\"amount\":2}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "332374e91d860db5a91b99a6b3540ded",
+      "source_span": "f840c7adf7fe0e39",
+      "tokens_out": 655,
+      "state": {
+        "seat": 5,
+        "position": 5,
+        "street": "preflop",
+        "hole": [
+          "4s",
+          "Kc"
+        ],
+        "board": [],
+        "pot": 3,
+        "to_call": 2,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 199,
+            "bet": 1,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 2,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          }
+        ],
+        "raise_type": "raise",
+        "raise_min": 4,
+        "raise_max": 200
+      },
+      "action": "{\"action\":\"raise\",\"amount\":6,\"say\":\"stealing the blinds\"}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "ddec96c228131e19014231547bcd6662",
+      "source_span": "85f54f74aeefbf76",
+      "tokens_out": 426,
+      "state": {
+        "seat": 2,
+        "position": 2,
+        "street": "preflop",
+        "hole": [
+          "Td",
+          "5d"
+        ],
+        "board": [],
+        "pot": 3,
+        "to_call": 2,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 199,
+            "bet": 1,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 2,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          }
+        ],
+        "raise_type": "raise",
+        "raise_min": 4,
+        "raise_max": 200
+      },
+      "action": "{\"action\":\"call\",\"amount\":2}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "a3acd8d81ced368eab46c408e7d15881",
+      "source_span": "40229417a4e5ccd0",
+      "tokens_out": 214,
+      "state": {
+        "seat": 2,
+        "position": 2,
+        "street": "preflop",
+        "hole": [
+          "Jh",
+          "7d"
+        ],
+        "board": [],
+        "pot": 3,
+        "to_call": 2,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 199,
+            "bet": 1,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 2,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          }
+        ],
+        "raise_type": "raise",
+        "raise_min": 4,
+        "raise_max": 200
+      },
+      "action": "{\"action\":\"fold\"}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "182653277846aece6e29e340d19170f9",
+      "source_span": "85e6e943eeec7d5f",
+      "tokens_out": 467,
+      "state": {
+        "seat": 3,
+        "position": 3,
+        "street": "preflop",
+        "hole": [
+          "4c",
+          "8d"
+        ],
+        "board": [],
+        "pot": 3,
+        "to_call": 2,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 199,
+            "bet": 1,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 2,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": ""
+          }
+        ],
+        "raise_type": "raise",
+        "raise_min": 4,
+        "raise_max": 200
+      },
+      "action": "{\"action\":\"fold\"}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "128576b19b4b8f3b11207f2ac96482ad",
+      "source_span": "951e1c445be61448",
+      "tokens_out": 784,
+      "state": {
+        "seat": 0,
+        "position": 0,
+        "street": "preflop",
+        "hole": [
+          "9c",
+          "Qd"
+        ],
+        "board": [],
+        "pot": 9,
+        "to_call": 5,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 199,
+            "bet": 1,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 2,
+            "status": ""
+          },
+          {
+            "seat": 2,
+            "stack": 194,
+            "bet": 6,
+            "status": ""
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          }
+        ],
+        "raise_type": "raise",
+        "raise_min": 10,
+        "raise_max": 200
+      },
+      "action": "{\"action\":\"call\",\"amount\":6}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    },
+    {
+      "source_trace": "128576b19b4b8f3b11207f2ac96482ad",
+      "source_span": "f6069caa9a32f95e",
+      "tokens_out": 920,
+      "state": {
+        "seat": 0,
+        "position": 0,
+        "street": "turn",
+        "hole": [
+          "9c",
+          "Qd"
+        ],
+        "board": [
+          "9d",
+          "Qs",
+          "Qh",
+          "Ac"
+        ],
+        "pot": 34,
+        "to_call": 0,
+        "seats": [
+          {
+            "seat": 0,
+            "stack": 184,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 1,
+            "stack": 198,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 2,
+            "stack": 184,
+            "bet": 0,
+            "status": ""
+          },
+          {
+            "seat": 3,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 4,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          },
+          {
+            "seat": 5,
+            "stack": 200,
+            "bet": 0,
+            "status": "folded"
+          }
+        ],
+        "raise_type": "bet",
+        "raise_min": 2,
+        "raise_max": 184
+      },
+      "action": "{\"action\":\"bet\",\"amount\":20}",
+      "hint": "Decide efficiently: assess hand strength, position, and the price to continue, then act.\nUse brief reasoning; aim to finish comfortably under 2,500 tokens. Avoid repeating the rules, enumerating\nirrelevant hands, or speculative placement arithmetic. Call submit_action exactly once with a legal action.\nBet and raise amounts are total chips committed on this street. Respect the listed bounds.\nSeek the best final rank: take clear value, but avoid marginal all-ins that risk elimination.\n"
+    }
+  ]
+}

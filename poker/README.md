@@ -1,6 +1,6 @@
 # Person B: data and scouting
 
-Run these commands from the repository root on `poker-b`. This package is local tooling and stays out of AC2
+Run these commands from the repository root on shared branch `poker`. This package is local tooling and stays out of AC2
 project uploads. Person A owns the live harness, GRPO jobs and arena submissions.
 
 ## Local setup (PowerShell)
@@ -72,8 +72,8 @@ restriction excludes online OPSD. Coordinate the single training slot with A bef
 
 For the decide-fast experiment use `--hint-file poker/decide_fast_hint.txt --max-tokens 2500` and the train eval
 `eval_ce4924764f47`. The builder now checks the live eval's base-model/dataset provenance and every trace's
-task membership, token counts, completion status and action legality. `--allow-running-dry-run --dry-run` can
-preview completed decisions while that eval runs; upload requires a succeeded source eval. Inspect the 20
+task membership, token counts, completion status and action legality. A running source eval may supply a
+versioned snapshot of its completed tasks; unfinished tasks are always excluded. Inspect the 20
 state/action/hint entries in `--hint-report`, then pass its printed `--reviewed-report-sha256` for an upload to a
 new versioned name. Existing hinted datasets are refused, never appended blindly.
 

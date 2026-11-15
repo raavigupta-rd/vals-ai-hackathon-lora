@@ -85,3 +85,24 @@ def test_quality_report_counts_cutoffs_without_conflating_whole_task_tokens():
     assert report["decision_cutoff_rate"] == .5
     assert report["tokens"]["task_output"]["sum"] == 5100
     assert report["tokens"]["task_all_request_tokens_upper_bound"]["sum"] == 5300
+
+
+def test_reward_variance_ignores_retries_and_incomplete_groups():
+    from poker.reward_diagnostics import summarize_rewards
+    def row(task, sample, value, time):
+        return dict(job_id="train_a", generated_step=1, datapoint_id=task, agent_trace_id=sample, score=value, created_at=time, parent_score_id="")
+    rows = [row("a", "1", 0, 0), row("a", "2", 0, 0), row("b", "1", 0, 0), row("b", "2", 4, 0), row("c", "1", 0, 0), row("b", "2", 5, 1)]
+    result = summarize_rewards(rows, 2)
+    assert result["complete_groups"] == 2 and result["incomplete_groups"] == 1
+    assert result["no_variance_fraction"] == .5 and result["all_zero_groups"] == 1
+    assert result["scored_rollouts"] == 5
+
+
+def test_bust_status_requires_a_finished_task_and_final_cleanup_evidence():
+    from poker.trace_quality import bust_status_by_task
+    prompt = [{"type": "message", "role": "user", "content": PROMPT},
+              {"type": "message", "role": "user", "content": "Stacks now: seat0 0, seat1 400.\nNow call update_scratchpad exactly once."}]
+    trace = {"spans": [span(input=json.dumps(prompt))], "scores": []}
+    assert bust_status_by_task([trace]) == {}
+    trace["scores"] = [{"score": 1}]
+    assert bust_status_by_task([trace]) == {"tsk_a": True}

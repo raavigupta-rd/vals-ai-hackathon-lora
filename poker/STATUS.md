@@ -1,5 +1,17 @@
 # Person B execution status
 
+## Shared working branch and strategy
+
+The user requested consolidation onto shared branch `poker`; `poker-a` and `poker-b` are historical references.
+All completed implementation, reports and reviewed OPSD work are being committed and merged with A's latest
+`overview.md`. The strategy reference `README (2).md` is now in the repo. `plan.md` records its applicable
+priorities and the confirmed platform limits. The Sunday cutoff and earlier selection/submission targets are PST.
+This repository consolidation does not restart the harness, alter deployments or launch another training job.
+
+Current completed checks: 35 root tests passed; 106 harness tests passed, one skipped. The sole training run
+remains `train_b2dda65e96c4`; see the timestamped run ledger for observed status and results. Its first four
+graded rollouts had zero failures but identical rewards, so no learning benefit is established yet.
+
 ## Combined integration execution — Nov 14
 
 - Combined A/B implementation published as `593a185` to `origin/poker-b`; archive extracted to ignored staging,
@@ -25,6 +37,21 @@
 - Integration checks: 33 root tests passed; 26 grading/server tests passed after telemetry-only edits. Earlier
   full harness run passed 106 with one skip. A full base-trace 20-hint review/upload and checkpoint comparison
   remain pending. Teacher/Pluribus source and optional solver/probe work are explicitly deferred.
+
+### Train-only OPSD snapshot review
+
+Reviewed 20 real decisions from completed base-train tasks, including seven incremental updates and all four
+streets. All were legal and under 2,500 tokens. The versioned data-path pilot
+`pokerbots-opsd-fast-20261114-pilot-v1` now contains 24 tasks. Eight unfinished task traces and 18 cleanup turns
+were excluded; no retained decision had missing counts, truncation, parsing, argument or legality failures.
+See `out/opsd_fast_hint_review.json` and `out/opsd_fast_review_notes.md` for the exact reviewed hash and source
+manifest. No held-out/select traces were used. This static decide-fast experiment does not use PokerBench labels
+or heuristic equity. No OPSD training was launched alongside the running GRPO pilot.
+
+Live-export correction: the SDK's basic download can reuse a cached snapshot. `poker/export_traces.py` requests
+`refresh=True` and saves a local SHA-256. Partial game trace prefixes are explicitly excluded from completed-game
+token/failure summaries. The first 30-hand game snapshot had 330 observed decisions and one cutoff, but zero
+finished games; it cannot establish a whole-game budget or failed-game rate.
 
 The sections below retain the initial B milestone for context.
 

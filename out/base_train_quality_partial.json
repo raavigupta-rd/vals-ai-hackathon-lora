@@ -1,0 +1,227 @@
+{
+  "counts": {
+    "decisions": 19,
+    "cleanups": 13,
+    "tasks": 20,
+    "tasks_with_failures": 0,
+    "completed_tasks": 12,
+    "completed_tasks_with_failures": 0
+  },
+  "decision_cutoff_rate": 0.0,
+  "decision_failure_rate": 0.0,
+  "failed_task_rate": 0.0,
+  "tokens": {
+    "decision_output": {
+      "count": 19,
+      "sum": 13826,
+      "median": 643.0,
+      "p99": 1900.7800000000002,
+      "max": 2005
+    },
+    "cleanup_output": {
+      "count": 13,
+      "sum": 12429,
+      "median": 859.0,
+      "p99": 1920.9999999999998,
+      "max": 1948
+    },
+    "task_output": {
+      "count": 20,
+      "sum": 26255,
+      "median": 1092.5,
+      "p99": 4456.629999999998,
+      "max": 4708
+    },
+    "request_input": {
+      "count": 32,
+      "sum": 48843,
+      "median": 1489.5,
+      "p99": 2099.9100000000003,
+      "max": 2174
+    },
+    "task_all_request_tokens_upper_bound": {
+      "count": 20,
+      "sum": 75098,
+      "median": 4005.0,
+      "p99": 10375.069999999998,
+      "max": 10574
+    },
+    "completed_task_output": {
+      "count": 12,
+      "sum": 20820,
+      "median": 1219.5,
+      "p99": 4562.470000000001,
+      "max": 4708
+    },
+    "completed_task_all_request_tokens_upper_bound": {
+      "count": 12,
+      "sum": 59148,
+      "median": 4124.5,
+      "p99": 10458.83,
+      "max": 10574
+    }
+  },
+  "tasks": [
+    {
+      "trace_id": "1312ba65f3c2526a08f521b337ae8a96",
+      "output_tokens": 1665,
+      "all_request_tokens_upper_bound": 4545,
+      "export_bytes": 46106,
+      "has_failure": false,
+      "completed_task": true
+    },
+    {
+      "trace_id": "da2f682245d392398fd53e3f2bb1464b",
+      "output_tokens": 1096,
+      "all_request_tokens_upper_bound": 4011,
+      "export_bytes": 42830,
+      "has_failure": false,
+      "completed_task": true
+    },
+    {
+      "trace_id": "332374e91d860db5a91b99a6b3540ded",
+      "output_tokens": 0,
+      "all_request_tokens_upper_bound": 0,
+      "export_bytes": 2791,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "77b86c20f71d3cadb95846ef0ea5d3f9",
+      "output_tokens": 982,
+      "all_request_tokens_upper_bound": 3925,
+      "export_bytes": 44428,
+      "has_failure": false,
+      "completed_task": true
+    },
+    {
+      "trace_id": "128576b19b4b8f3b11207f2ac96482ad",
+      "output_tokens": 3385,
+      "all_request_tokens_upper_bound": 10574,
+      "export_bytes": 92964,
+      "has_failure": false,
+      "completed_task": true
+    },
+    {
+      "trace_id": "090e22c89f3741fedf997abb0d16d13a",
+      "output_tokens": 477,
+      "all_request_tokens_upper_bound": 1798,
+      "export_bytes": 9531,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "182653277846aece6e29e340d19170f9",
+      "output_tokens": 1124,
+      "all_request_tokens_upper_bound": 4040,
+      "export_bytes": 43459,
+      "has_failure": false,
+      "completed_task": true
+    },
+    {
+      "trace_id": "ddec96c228131e19014231547bcd6662",
+      "output_tokens": 426,
+      "all_request_tokens_upper_bound": 1738,
+      "export_bytes": 9418,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "9ed265725f2e1c690a48dfc5393fda73",
+      "output_tokens": 1315,
+      "all_request_tokens_upper_bound": 4262,
+      "export_bytes": 42890,
+      "has_failure": false,
+      "completed_task": true
+    },
+    {
+      "trace_id": "4e847b5a9411b731fd922b185ce0c975",
+      "output_tokens": 1089,
+      "all_request_tokens_upper_bound": 4209,
+      "export_bytes": 44297,
+      "has_failure": false,
+      "completed_task": true
+    },
+    {
+      "trace_id": "cc691ff96d206420b6e29010accdf42d",
+      "output_tokens": 0,
+      "all_request_tokens_upper_bound": 0,
+      "export_bytes": 2791,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "7c048fbcb0674e637189bcf1a913a177",
+      "output_tokens": 1877,
+      "all_request_tokens_upper_bound": 4781,
+      "export_bytes": 48985,
+      "has_failure": false,
+      "completed_task": true
+    },
+    {
+      "trace_id": "9bbe9adbeab9438c53764055f1bb1a16",
+      "output_tokens": 1056,
+      "all_request_tokens_upper_bound": 3999,
+      "export_bytes": 45207,
+      "has_failure": false,
+      "completed_task": true
+    },
+    {
+      "trace_id": "2746add13e36aaf7c8224aa9a7db2888",
+      "output_tokens": 2285,
+      "all_request_tokens_upper_bound": 5243,
+      "export_bytes": 29977,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "1094caa1069f5a6b064a47ee42a5d334",
+      "output_tokens": 2247,
+      "all_request_tokens_upper_bound": 7171,
+      "export_bytes": 41390,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "750fed56d4614ac828d829e7b5e0f886",
+      "output_tokens": 0,
+      "all_request_tokens_upper_bound": 0,
+      "export_bytes": 2791,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "b12ad11e10c4249814ba8062b2fb12b3",
+      "output_tokens": 1723,
+      "all_request_tokens_upper_bound": 3109,
+      "export_bytes": 36700,
+      "has_failure": false,
+      "completed_task": true
+    },
+    {
+      "trace_id": "03fbe70d2ce68c90db69d822e99238d1",
+      "output_tokens": 800,
+      "all_request_tokens_upper_bound": 2166,
+      "export_bytes": 30359,
+      "has_failure": false,
+      "completed_task": true
+    },
+    {
+      "trace_id": "835139355b3cfe4377a98b065245c90e",
+      "output_tokens": 0,
+      "all_request_tokens_upper_bound": 0,
+      "export_bytes": 2791,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "909262ad00f80d14a987ecac63ac2675",
+      "output_tokens": 4708,
+      "all_request_tokens_upper_bound": 9527,
+      "export_bytes": 86744,
+      "has_failure": false,
+      "completed_task": true
+    }
+  ],
+  "budget_note": "task_output and task_all_request_tokens_upper_bound include observed prefixes of unfinished tasks. Only completed_task_* cover finished games. All-request sums deliberately overcount repeated prompts; they are not the trainer's exact accumulated transcript length. Do not choose long-game limits without a measured training pilot. Export bytes are not connector collect_outputs payload size."
+}

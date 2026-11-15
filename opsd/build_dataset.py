@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hint import HINT, SEPARATOR  # noqa: E402
 from poker.hints import HintBuilder, parse_prompt  # noqa: E402
-from poker.trace_quality import cutoff, is_cleanup, legal_reply  # noqa: E402
+from poker.trace_quality import cutoff, is_cleanup, legal_reply, task_complete  # noqa: E402
 
 ITEMS = TypeAdapter(list[Item])
 SUBMIT = "submit_action"
@@ -155,21 +155,31 @@ def main() -> None:
         parser.error("--allow-running-dry-run requires --dry-run")
     hint_builder = args.hint_file.read_text(encoding="utf-8") if args.hint_file else HINT if args.generic_hint else HintBuilder(args.records, equity_samples=args.equity_samples)
     client = Client(project=args.project)
-    source, task_ids = verify_source(client, args.eval, args.source_dataset, allow_running=args.allow_running_dry_run)
+    # A running eval can supply a versioned snapshot of its finished tasks. Waiting for all 2,000 hands is
+    # unnecessary; unfinished tasks are excluded below and the source manifest is retained in the review.
+    source, task_ids = verify_source(client, args.eval, args.source_dataset, allow_running=True)
 
     path = args.traces or Path(f"traces/{args.eval}.jsonl")
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         Client(project=args.project).traces.download(args.eval, path)
     tasks, totals = [], {}
+    incomplete_tasks = 0
     with path.open() as lines:
         for line in lines:
             trace = json.loads(line)
             check_provenance(trace, args.eval, args.source_dataset, task_ids)
+            if not task_complete(trace):
+                incomplete_tasks += 1
+                continue
             built, stats = decision_tasks(trace, hint_builder, args.max_tokens)
+            for task in built:
+                task.env_params.update(source_eval=args.eval, source_dataset=args.source_dataset,
+                                       source_task_manifest=source.tasks[0].task_manifest_uri)
             tasks.extend(built)
             totals = {k: totals.get(k, 0) + stats[k] for k in stats}
     random.Random(0).shuffle(tasks)
+    totals["incomplete_tasks"] = incomplete_tasks
     print(json.dumps(totals | {"tasks": len(tasks)}))
     if args.hint_report:
         args.hint_report.parent.mkdir(parents=True, exist_ok=True)

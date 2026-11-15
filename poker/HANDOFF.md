@@ -1,5 +1,11 @@
 # Finish the poker entry: combined A/B handoff
 
+**Consolidation update:** the user has authorized committing/pushing all completed work and merging A/B onto
+the shared `poker` branch. Use `plan.md`, `poker/STATUS.md` and the timestamped `poker/run_ledger.json` for current
+instructions and state. Do not reapply the transfer patch in this workspace. `poker-a`/`poker-b` references below
+describe the original historical transfer, not the active branch workflow. Read `README (2).md` for the added
+strategy priorities, subject to the confirmed event rules and platform capabilities.
+
 This is an execution handoff, not a claim that the project is complete. Person A's commits through `815c9bf`
 were pulled with `git pull --ff-only origin poker-a` into local `poker-b`; all uncommitted B work was preserved.
 No training job or arena submission was launched by the review.

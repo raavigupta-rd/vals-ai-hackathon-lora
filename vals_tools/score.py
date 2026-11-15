@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import statistics
+from pathlib import Path
 from typing import Any
 
 from ac2.sdk import Client
@@ -99,12 +100,30 @@ def main() -> None:
     target.add_argument("--run", help="a training run; with --step, its sidecar eval at that step")
     parser.add_argument("--step", type=int)
     parser.add_argument("--base", help="the base model's eval on the same dataset")
+    parser.add_argument("--traces", type=Path, help="completed task traces; recover missing bust status from final cleanup summaries")
     args = parser.parse_args()
 
     client = Client(project=args.project)
+    source_info = client.eval.get(args.eval) if args.eval else None
+    base_info = client.eval.get(args.base) if args.base else None
+    if source_info and base_info and {t.dataset for t in source_info.tasks} != {t.dataset for t in base_info.tasks}:
+        parser.error("paired comparison requires the same source dataset; task IDs are then paired by intersection")
     rows = score_rows(client, eval_id=args.eval, run=args.run, step=args.step)
+    if args.traces:
+        from poker.trace_quality import bust_status_by_task
+        with args.traces.open(encoding="utf-8") as stream:
+            busts = bust_status_by_task(json.loads(line) for line in stream)
+        rows = {k: r | ({"busted": busts[k]} if "busted" not in r and k in busts else {}) for k, r in rows.items()}
     base = score_rows(client, eval_id=args.base) if args.base else None
-    print(json.dumps(summarize(rows, base), indent=1))
+    report = summarize(rows, base)
+    if source_info:
+        report["source"] = {"eval_id": source_info.id, "status": source_info.status,
+                            "datasets": [t.dataset for t in source_info.tasks],
+                            "partial": source_info.status != "succeeded"}
+    if base_info:
+        report["base"] = {"eval_id": base_info.id, "status": base_info.status,
+                          "partial": base_info.status != "succeeded"}
+    print(json.dumps(report, indent=1))
 
 
 if __name__ == "__main__":

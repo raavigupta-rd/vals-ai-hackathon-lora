@@ -69,9 +69,41 @@ def token_summary(values):
     return {"count": len(values), "sum": sum(values), "median": quantile(values, .5), "p99": quantile(values, .99), "max": max(values) if values else None}
 
 
+def task_complete(trace):
+    for span in trace["spans"]:
+        if span["name"] == "black_box_run_to_completion" and span.get("end_time"):
+            try:
+                return items(span["output"]).get("status") == "completed"
+            except (ValueError, TypeError, AttributeError):
+                pass
+    return bool(trace.get("scores"))
+
+
+def bust_status_by_task(traces):
+    result = {}
+    for trace in traces:
+        if not task_complete(trace):
+            continue
+        spans = sorted([s for s in trace["spans"] if s["name"] == "get_completion"], key=lambda s: s["start_time"])
+        for span in spans:
+            try:
+                prompt = items(span["input"])
+                if not is_cleanup(prompt):
+                    continue
+                state = parse_prompt(prompt)
+                last = next((text_content(i) for i in reversed(prompt) if text_content(i)), "")
+                stacks = re.search(r"^Stacks now: (.+)$", last, re.M)
+                mine = re.search(r"\bseat" + str(state["seat"]) + r" (\d+)\b", stacks[1]) if state and stacks else None
+                if mine and span.get("datapoint_id"):
+                    result[span["datapoint_id"]] = int(mine[1]) == 0
+            except (ValueError, TypeError):
+                continue
+    return result
+
+
 def audit(traces):
     counts = Counter()
-    lengths = {k: [] for k in ("decision_output", "cleanup_output", "task_output", "request_input", "task_all_request_tokens_upper_bound")}
+    lengths = {k: [] for k in ("decision_output", "cleanup_output", "task_output", "request_input", "task_all_request_tokens_upper_bound", "completed_task_output", "completed_task_all_request_tokens_upper_bound", "completed_task_duration_seconds")}
     task_reports = []
     for trace in traces:
         spans = sorted([s for s in trace["spans"] if s["name"] == "get_completion"], key=lambda s: s["start_time"])
@@ -117,16 +149,25 @@ def audit(traces):
             all_tokens += tokens or 0
         counts["tasks"] += 1
         counts["tasks_with_failures"] += failed
+        complete = task_complete(trace)
+        counts["completed_tasks"] += complete
+        counts["completed_tasks_with_failures"] += complete and failed
         lengths["task_output"].append(output_tokens)
         lengths["task_all_request_tokens_upper_bound"].append(all_tokens)
+        if complete:
+            lengths["completed_task_output"].append(output_tokens)
+            lengths["completed_task_all_request_tokens_upper_bound"].append(all_tokens)
+            durations = [s["duration_ms"] / 1000 for s in trace["spans"] if s.get("duration_ms") and s["name"] in ("session", "episode", "black_box_run_to_completion")]
+            if durations:
+                lengths["completed_task_duration_seconds"].append(max(durations))
         task_reports.append({"trace_id": trace["trace_id"], "output_tokens": output_tokens,
                              "all_request_tokens_upper_bound": all_tokens,
-                             "export_bytes": len(json.dumps(trace).encode()), "has_failure": failed})
+                             "export_bytes": len(json.dumps(trace).encode()), "has_failure": failed, "completed_task": complete})
     return {"counts": dict(counts), "decision_cutoff_rate": counts["decision_cutoffs"] / counts["decisions"] if counts["decisions"] else None,
             "decision_failure_rate": counts["decision_failures"] / counts["decisions"] if counts["decisions"] else None,
-            "failed_task_rate": counts["tasks_with_failures"] / counts["tasks"] if counts["tasks"] else None,
+            "failed_task_rate": counts["completed_tasks_with_failures"] / counts["completed_tasks"] if counts["completed_tasks"] else None,
             "tokens": {k: token_summary(v) for k, v in lengths.items()}, "tasks": task_reports,
-            "budget_note": "All-request token sum deliberately overcounts repeated prompt prefixes. It is an observed upper bound, not the trainer's exact accumulated transcript length. Do not choose long-game limits from it without a measured training pilot. Export bytes are not the connector collect_outputs payload size."}
+            "budget_note": "task_output and task_all_request_tokens_upper_bound include observed prefixes of unfinished tasks. Only completed_task_* cover finished games. All-request sums deliberately overcount repeated prompts; they are not the trainer's exact accumulated transcript length. Do not choose long-game limits without a measured training pilot. Export bytes are not connector collect_outputs payload size."}
 
 
 if __name__ == "__main__":

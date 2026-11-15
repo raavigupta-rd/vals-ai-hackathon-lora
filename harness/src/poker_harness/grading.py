@@ -52,7 +52,9 @@ from .game import placements
 
 # Captured once when the process imports the grader. Editing files on disk does not change this value in a
 # running process; report it in health and scores so future runs can attest the code that actually graded them.
-GRADER_REVISION = hashlib.sha256(Path(__file__).read_bytes() + Path(__file__).with_name("game.py").read_bytes()).hexdigest()
+GRADER_REVISION = hashlib.sha256(
+    (Path(__file__).read_text(encoding="utf-8") + "\0" + Path(__file__).with_name("game.py").read_text(encoding="utf-8")).encode()
+).hexdigest()
 
 REWARD_OFFSET = 6.0  # shifts the clipped reward [-5, +5] to [1, 11]
 REWARD_FLOOR, REWARD_CEILING = -5.0, 5.0

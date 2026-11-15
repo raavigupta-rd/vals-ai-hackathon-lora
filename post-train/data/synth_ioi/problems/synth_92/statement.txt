@@ -1,0 +1,37 @@
+PALINDROME SHREDDING
+
+Given a lowercase string S of length N, count the number of ways to partition S into one or more contiguous substrings such that EVERY piece in the partition:
+1. is a palindrome, AND
+2. has length AT LEAST 2.
+
+Print the number of valid partitions modulo 998244353.
+
+Input
+The single line of input contains the string S (1 <= |S| <= 200000).
+
+Output
+Print a single integer: the number of valid palindromic partitions of S with all piece lengths >= 2, modulo 998244353.
+
+Constraints
+1 <= |S| <= 200000
+S consists of lowercase English letters ('a'-'z')
+
+Sample input 1 (file sample_1.in)
+ababa
+
+Sample output 1 (file sample_1.out)
+1
+
+Sample input 2 (file sample_2.in)
+aaaa
+
+Sample output 2 (file sample_2.out)
+2
+
+Sample input 3 (file sample_3.in)
+abcba
+
+Sample output 3 (file sample_3.out)
+1
+
+Limits: 2 seconds and 1024 MiB of memory per test.

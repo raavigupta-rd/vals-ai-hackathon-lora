@@ -1,0 +1,32 @@
+STEPPED TERRACES
+
+A hillside has N garden terraces numbered 1 to N, where terrace i currently has integer elevation A_i. Raising or lowering any terrace by 1 metre costs 1 unit of labour.
+
+Choose new integer elevations B_1, B_2, ..., B_N (negative or zero integer elevations are allowed) such that B_1 < B_2 < ... < B_N (strictly increasing), minimizing the total labour sum_{i=1..N} |A_i - B_i|.
+
+Input
+The first line contains N.
+The second line contains A_1 ... A_N.
+
+Output
+Print a single integer: the minimum total labour required.
+
+Constraints
+1 <= N <= 200000
+1 <= A_i <= 10^9
+
+Sample input 1 (file sample_1.in)
+5
+5 4 3 2 1
+
+Sample output 1 (file sample_1.out)
+12
+
+Sample input 2 (file sample_2.in)
+4
+2 2 2 2
+
+Sample output 2 (file sample_2.out)
+4
+
+Limits: 2 seconds and 1024 MiB of memory per test.

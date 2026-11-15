@@ -1,0 +1,40 @@
+CENSORED CHRONICLE
+
+A royal scribe copies a text T from left to right into an initially empty scroll R, checking a list of K forbidden words P_1, P_2, ..., P_K after each character:
+1. Append the next character of T to the end of R.
+2. If one or more forbidden words now appear as a suffix of R, immediately erase the LONGEST such forbidden word from the end of R.
+
+After all characters of T have been processed, print the final contents of the scroll R, or print EMPTY if R has length 0.
+
+Input
+The first line contains the text T.
+The second line contains K.
+Each of the next K lines contains a forbidden word P_i.
+
+Output
+Print the final string R, or EMPTY if R is empty.
+
+Constraints
+1 <= |T| <= 200000
+1 <= K <= 100000
+1 <= |P_i|, and |P_1| + |P_2| + ... + |P_K| <= 200000
+T and all P_i consist of lowercase English letters ('a'-'z')
+
+Sample input 1 (file sample_1.in)
+abxabyabz
+2
+aby
+ababz
+
+Sample output 1 (file sample_1.out)
+abxabz
+
+Sample input 2 (file sample_2.in)
+aabb
+1
+ab
+
+Sample output 2 (file sample_2.out)
+EMPTY
+
+Limits: 2 seconds and 1024 MiB of memory per test.

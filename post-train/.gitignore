@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/*
+!data/synth_ioi/
+.cache/
+runs/
+data/synth_ioi/.build_rw/

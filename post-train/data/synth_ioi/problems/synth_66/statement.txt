@@ -1,0 +1,31 @@
+GCD SPECTRUM
+
+You are given an integer array A_1, A_2, ..., A_N and Q queries. Each query gives a positive integer X and asks: for how many pairs (L, R) with 1 <= L <= R <= N is gcd(A_L, A_{L+1}, ..., A_R) equal to X?
+
+Input
+The first line contains N and Q.
+The second line contains A_1 ... A_N.
+Each of the next Q lines contains a query integer X.
+
+Output
+For each query print the number of subarrays with GCD equal to X on its own line.
+
+Constraints
+1 <= N, Q <= 180000
+1 <= A_i, X <= 10^9
+
+Sample input 1 (file sample_1.in)
+5 4
+6 12 4 8 2
+6
+4
+2
+3
+
+Sample output 1 (file sample_1.out)
+2
+4
+7
+0
+
+Limits: 2 seconds and 1024 MiB of memory per test.

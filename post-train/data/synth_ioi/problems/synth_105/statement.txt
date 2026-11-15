@@ -1,0 +1,43 @@
+ROOTED CANOPY SYMMETRIES
+
+A botanical researcher studies an unrooted tree of N junctions numbered 1 to N. For each junction r (1 <= r <= N), let T_r denote the rooted tree obtained by choosing r as the root.
+
+Two junctions u and v belong to the same structural symmetry class if T_u and T_v are isomorphic as rooted unlabeled trees.
+
+Determine the total number C of distinct structural symmetry classes, and assign each junction u an integer class label I_u in {1, ..., C} normalized by first appearance: junction 1 receives label 1, and as u increases from 1 to N, each junction whose rooted tree is not isomorphic to any T_j (j < u) receives the next unused positive integer.
+
+Input
+The first line contains N.
+Each of the next N - 1 lines contains two integers u and v describing an edge.
+
+Output
+On the first line print C.
+On the second line print I_1 I_2 ... I_N separated by spaces.
+
+Constraints
+1 <= N <= 180000
+
+Sample input 1 (file sample_1.in)
+5
+1 2
+2 3
+3 4
+4 5
+
+Sample output 1 (file sample_1.out)
+3
+1 2 3 2 1
+
+Sample input 2 (file sample_2.in)
+6
+1 2
+1 3
+2 4
+2 5
+3 6
+
+Sample output 2 (file sample_2.out)
+5
+1 2 3 4 4 5
+
+Limits: 2 seconds and 1024 MiB of memory per test.

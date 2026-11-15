@@ -1,0 +1,39 @@
+CHORDED TREE ROADS
+
+A province has N towns numbered 1 to N connected by M bidirectional roads, where road i connects U_i and V_i with length W_i. The network is connected, and M <= N + 20 (that is, at most 21 extra roads beyond a spanning tree).
+
+Answer Q shortest-path queries: each query specifies two towns A and B and asks for the minimum road distance between A and B.
+
+Input
+The first line contains N, M, and Q.
+Each of the next M lines contains U_i, V_i, and W_i.
+Each of the next Q lines contains A and B.
+
+Output
+For each query print the shortest distance between A and B on its own line.
+
+Constraints
+2 <= N <= 140000
+N - 1 <= M <= N + 20
+1 <= Q <= 140000
+1 <= U_i, V_i, A, B <= N, U_i != V_i
+1 <= W_i <= 10^8
+
+Sample input 1 (file sample_1.in)
+5 6 3
+1 2 10
+2 3 10
+3 4 10
+4 5 10
+1 5 5
+2 4 3
+1 4
+2 5
+1 3
+
+Sample output 1 (file sample_1.out)
+13
+13
+20
+
+Limits: 2 seconds and 1024 MiB of memory per test.

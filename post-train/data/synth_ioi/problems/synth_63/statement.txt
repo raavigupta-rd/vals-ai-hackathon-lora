@@ -1,0 +1,34 @@
+COMMON BORDERS
+
+A proper border of a non-empty string T is a string B with 0 <= |B| < |T| that occurs BOTH as a prefix of T and as a suffix of T (the empty string of length 0 is always a proper border).
+
+You are given a string S of length N (1-indexed) and Q queries. Each query specifies two prefix lengths P and R (1 <= P, R <= N): find the maximum length of a string that is simultaneously a proper border of S[1..P] AND a proper border of S[1..R].
+
+Input
+The first line contains N and Q.
+The second line contains S.
+Each of the next Q lines contains P and R.
+
+Output
+For each query print the maximum common proper border length on its own line.
+
+Constraints
+1 <= N, Q <= 200000
+S consists of lowercase English letters ('a'-'z')
+1 <= P, R <= N
+
+Sample input 1 (file sample_1.in)
+7 4
+abababa
+3 5
+5 5
+1 7
+4 6
+
+Sample output 1 (file sample_1.out)
+1
+3
+0
+2
+
+Limits: 2 seconds and 1024 MiB of memory per test.

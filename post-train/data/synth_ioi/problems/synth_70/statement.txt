@@ -1,0 +1,34 @@
+SQUARE PRODUCT SUBSETS
+
+You are given an array A_1, A_2, ..., A_N of positive integers such that EVERY prime factor of every A_i is at most 300 (note that A_i itself can be up to 10^18).
+
+Answer Q queries. Each query specifies L and R (1 <= L <= R <= N): count how many NON-EMPTY subsets of indices S subseteq {L, L + 1, ..., R} have the property that the product of A_i over i in S is a perfect square, modulo 10^9 + 7.
+
+Input
+The first line contains N and Q.
+The second line contains A_1 ... A_N.
+Each of the next Q lines contains L and R.
+
+Output
+For each query print the number of non-empty square-product subsets modulo 10^9 + 7 on its own line.
+
+Constraints
+1 <= N, Q <= 180000
+1 <= A_i <= 10^18, and every prime factor of A_i is <= 300
+1 <= L <= R <= N
+
+Sample input 1 (file sample_1.in)
+5 4
+2 3 6 12 1
+1 3
+1 4
+2 5
+5 5
+
+Sample output 1 (file sample_1.out)
+1
+3
+3
+1
+
+Limits: 2 seconds and 1024 MiB of memory per test.

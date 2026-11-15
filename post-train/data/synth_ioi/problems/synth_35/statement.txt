@@ -1,0 +1,32 @@
+PRIME LEDGER
+
+A ledger lists N positive integers A_1, A_2, ..., A_N. You are asked Q range questions: each question specifies L and R, and asks how many DISTINCT prime numbers divide the product A_L * A_{L+1} * ... * A_R.
+
+Input
+The first line contains N and Q.
+The second line contains A_1 ... A_N.
+Each of the next Q lines contains L and R.
+
+Output
+For each question print the count of distinct prime divisors on its own line.
+
+Constraints
+1 <= N, Q <= 200000
+1 <= A_i <= 1000000
+1 <= L <= R <= N
+
+Sample input 1 (file sample_1.in)
+5 4
+6 10 1 9 7
+1 2
+2 4
+3 3
+1 5
+
+Sample output 1 (file sample_1.out)
+3
+3
+0
+4
+
+Limits: 2 seconds and 1024 MiB of memory per test.

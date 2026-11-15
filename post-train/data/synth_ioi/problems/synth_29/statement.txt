@@ -1,0 +1,28 @@
+ORE ASSAY
+
+A mine tunnel exposes N consecutive ore veins numbered 1 to N. Vein i contains G_i milligrams of gold embedded in R_i kilograms of rock. Mining regulations require excavating a single contiguous block of AT LEAST K consecutive veins.
+
+If veins L, L+1, ..., R (with R - L + 1 >= K) are excavated, the yield density is (G_L + ... + G_R) / (R_L + ... + R_R). Print floor(10^6 * M), where M is the maximum achievable yield density over all valid blocks.
+
+Input
+The first line contains N and K.
+The second line contains G_1 ... G_N.
+The third line contains R_1 ... R_N.
+
+Output
+Print a single integer: floor(10^6 * M).
+
+Constraints
+1 <= K <= N <= 200000
+0 <= G_i <= 10^6
+1 <= R_i <= 10^4
+
+Sample input 1 (file sample_1.in)
+5 2
+10 2 20 1 15
+5 5 4 5 3
+
+Sample output 1 (file sample_1.out)
+3000000
+
+Limits: 2 seconds and 1024 MiB of memory per test.

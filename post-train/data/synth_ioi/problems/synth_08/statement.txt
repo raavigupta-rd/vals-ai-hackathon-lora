@@ -1,0 +1,38 @@
+ANCESTRAL ARCHIVE
+
+An academy of N scholars is organized as a rooted tree with scholar 1 as the grandmaster (root). Initially scholar i receives stipend A_i. Process Q events of two types:
+- 1 U X: add X to the stipend of every scholar in the subtree of U (including U itself).
+- 2 U V: report the sum of current stipends of all scholars on the unique simple path between U and V (inclusive).
+
+Input
+The first line contains N and Q.
+The second line contains A_1 ... A_N.
+Each of the next N - 1 lines contains two scholars connected by a direct mentorship link.
+Each of the next Q lines describes an event in one of the two formats above. At least one event is of type 2.
+
+Output
+For each event of type 2, print the path sum on its own line.
+
+Constraints
+1 <= N, Q <= 200000
+-10^5 <= A_i, X <= 10^5
+1 <= U, V <= N
+
+Sample input 1 (file sample_1.in)
+5 4
+10 20 30 40 50
+1 2
+1 3
+2 4
+2 5
+2 4 3
+1 2 5
+2 4 5
+2 5 3
+
+Sample output 1 (file sample_1.out)
+100
+125
+120
+
+Limits: 2 seconds and 1024 MiB of memory per test.

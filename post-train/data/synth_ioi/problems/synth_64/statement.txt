@@ -1,0 +1,32 @@
+SUBSTRING FREQUENCIES
+
+You are given a string S of length N and Q queries. Each query specifies two integers A and B (1 <= A <= B <= N): count how many DISTINCT non-empty substrings T of S occur in S at least A times and at most B times (overlapping occurrences count; for example, "aba" occurs twice in "ababa").
+
+Input
+The first line contains N and Q.
+The second line contains S.
+Each of the next Q lines contains A and B.
+
+Output
+For each query print the number of distinct substrings whose occurrence count lies in [A, B] on its own line.
+
+Constraints
+1 <= N, Q <= 160000
+S consists of lowercase English letters ('a'-'z')
+1 <= A <= B <= N
+
+Sample input 1 (file sample_1.in)
+5 4
+ababa
+1 5
+2 2
+3 5
+1 1
+
+Sample output 1 (file sample_1.out)
+9
+4
+1
+4
+
+Limits: 2 seconds and 1024 MiB of memory per test.

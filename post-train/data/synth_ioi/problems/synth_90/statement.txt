@@ -1,0 +1,46 @@
+BIPARTITE DOCKYARD
+
+A harbor has M piers numbered 1 to M in a row from west to east. Pier p can accommodate at most Cap_p vessels simultaneously.
+
+N merchant fleets arrive seeking berths. Fleet i consists of C_i identical vessels, and because of draft restrictions in the central channel, each vessel of fleet i may berth at ANY pier p satisfying:
+1 <= p <= L_i   OR   R_i <= p <= M
+(note that L_i = 0 means no western piers are usable, and R_i = M + 1 means no eastern piers are usable; different vessels of the same fleet may use different piers, and you may leave some vessels unberthed).
+
+Compute the MAXIMUM total number of vessels that can be berthed simultaneously across all M piers.
+
+Input
+The first line contains N and M.
+The second line contains Cap_1 ... Cap_M.
+Each of the next N lines contains three integers L_i, R_i, and C_i.
+
+Output
+Print a single integer: the maximum number of vessels that can be berthed.
+
+Constraints
+1 <= N, M <= 180000
+0 <= Cap_p <= 10^8
+0 <= L_i < R_i <= M + 1, and at least one of L_i >= 1 or R_i <= M holds
+1 <= C_i <= 10^8
+
+Sample input 1 (file sample_1.in)
+4 4
+2 1 2 3
+1 4 3
+2 5 2
+0 3 4
+1 3 2
+
+Sample output 1 (file sample_1.out)
+8
+
+Sample input 2 (file sample_2.in)
+3 3
+5 5 5
+1 4 4
+2 4 4
+0 2 4
+
+Sample output 2 (file sample_2.out)
+12
+
+Limits: 2 seconds and 1024 MiB of memory per test.

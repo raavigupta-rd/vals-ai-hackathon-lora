@@ -1,0 +1,37 @@
+PLAGUE INFIRMARIES
+
+A kingdom has N towns numbered 1 to N connected by N - 1 bidirectional roads forming a tree. Initially, ONLY town 1 has an open infirmary.
+
+Process Q events of two types:
+- 1 U: open an infirmary in town U (if one is already open in U, it stays open).
+- 2 V: report the minimum number of roads on the path from town V to ANY currently open infirmary.
+
+Input
+The first line contains N and Q.
+Each of the next N - 1 lines contains two towns connected by a road.
+Each of the next Q lines describes an event in one of the two formats above. At least one event is of type 2.
+
+Output
+For each event of type 2, print the shortest distance to an open infirmary on its own line.
+
+Constraints
+1 <= N, Q <= 160000
+1 <= U, V <= N
+
+Sample input 1 (file sample_1.in)
+5 4
+1 2
+2 3
+2 4
+4 5
+2 5
+1 4
+2 5
+2 3
+
+Sample output 1 (file sample_1.out)
+3
+1
+2
+
+Limits: 2 seconds and 1024 MiB of memory per test.

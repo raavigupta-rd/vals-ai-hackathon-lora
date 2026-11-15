@@ -1,0 +1,42 @@
+SUBTREE ALLIANCES
+
+A confederation consists of N cities numbered 1 to N connected by N - 1 bidirectional roads forming a tree. An alliance is a non-empty subset of cities that induces a connected subgraph of the tree.
+
+Given an integer M (which is NOT necessarily prime), compute for EVERY city v = 1, 2, ..., N the number of valid alliances that include city v, modulo M.
+
+Input
+The first line contains N and M.
+Each of the next N - 1 lines contains two cities U and V connected by a road.
+
+Output
+Print N lines: line v should contain the number of connected city subsets containing city v, modulo M.
+
+Constraints
+1 <= N <= 200000
+2 <= M <= 10^9
+
+Sample input 1 (file sample_1.in)
+4 100
+1 2
+1 3
+1 4
+
+Sample output 1 (file sample_1.out)
+8
+5
+5
+5
+
+Sample input 2 (file sample_2.in)
+4 6
+1 2
+2 3
+3 4
+
+Sample output 2 (file sample_2.out)
+4
+0
+0
+4
+
+Limits: 2 seconds and 1024 MiB of memory per test.

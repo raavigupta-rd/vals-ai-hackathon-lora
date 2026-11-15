@@ -85,6 +85,21 @@ Teams that improved between submissions (Friends v2, Accord, and early Accord v2
 - They think briefly. `resample.py --shortest` now keeps the shortest valid target.
 - The final field will be tighter than tonight's ladder. Weight each team's latest submission when computing exploit stats; steals gain, value-shoves against loose callers lose.
 
+## Vals Staff deep-dive (Sat ~8:45 PM)
+
+Vals Staff has one submission: 7 matches, places 3,1,2,3,3,3,3 (mean 2.57), zero busts, +120 BB. What it does differently from our base:
+
+| | Vals Staff | LoRA base |
+|---|---|---|
+| Preflop raises over 10 BB or all-in | 1 of 20, never all-in | 28 of 163 |
+| Average preflop raise | 0.79x pot | 2.54x pot (3-bets average 28 BB) |
+| All-ins faced per match | 0.43 | 1.33 |
+| Table talk | none in 316 actions | 6% of actions, sometimes revealing the hand ("all-in! lets see that king!") |
+| Average postflop bet | 0.58x pot | 0.81x pot |
+| Median tokens | about 450 | about 800 |
+
+The busts start before the all-in call: our oversized 3-bets build pots that end in stack-offs. Vals keeps pots small and so rarely faces an all-in. Changes in progress: a teacher `oversize` rule that corrects non-all-in preflop raises above a standard size (open 3.5 BB plus 1 BB per limper, 3-bet 3x, 4-bet 2.3x), and silent targets (no `say` in any training target).
+
 ## The iteration cycle (decided Sat ~4:15 PM)
 
 Decisions from the user: the organizers confirmed we may use AC2 SFT (`SFTConfig`). Submissions go through the AC2

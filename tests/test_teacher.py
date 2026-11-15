@@ -284,3 +284,15 @@ def test_open_shoves_need_a_shove_range_for_the_stack_depth():
     assert open_shove_verdict("QQ", effective_bb=100) is None
     assert open_shove_verdict("A9s", effective_bb=100) == "fold"
     assert open_shove_verdict("A9s", effective_bb=12) is None  # short stacks shove wider
+
+
+def test_ranges_are_field_level_by_default_because_seats_are_anonymous(monkeypatch):
+    import poker.teacher as t
+    con = _db()
+    monkeypatch.setattr(t, "POPULATION_MIN", 1)  # seat 0 has one own shove (QQ): enough to use it per-opponent
+    monkeypatch.setattr(t, "PER_OPPONENT", True)
+    per_opp, _ = t.shove_range(con, "e0|v1|d0", exclude=("m_a", 2))
+    monkeypatch.setattr(t, "PER_OPPONENT", False)
+    field, own = t.shove_range(con, "e0|v1|d0", exclude=("m_a", 2))
+    assert own == 1 and per_opp == ["QQ"]
+    assert set(field) >= {"QQ"} and field == sorted(set(field))  # the field's shoves, not seat 0's own record

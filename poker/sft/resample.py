@@ -81,8 +81,9 @@ def main() -> None:
     spots = [e for e in load_entries(args.joined, args.db) if e["verdict"].get("agree") is False]
     done = set()
     if args.out.exists():
-        done = {json.loads(line)["span_id"] for line in args.out.open(encoding="utf-8")}
-    spots = [e for e in spots if e["record"]["span_id"] not in done]
+        done = {(item["span_id"], item.get("preferred")) for item in map(json.loads, args.out.open(encoding="utf-8"))}
+    # A spot is redone when the teacher's preferred action changed since it was sampled.
+    spots = [e for e in spots if (e["record"]["span_id"], e["verdict"]["preferred"]) not in done]
 
     from poker.sft.make_records import correction_reasoning
     from poker.teacher import hand_code

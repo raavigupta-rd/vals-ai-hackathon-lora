@@ -118,6 +118,8 @@ def select(rows, *, cycle: int, abstain_ratio: float = 2.0, seed: int = 0, resam
             continue
         if verdict.get("agree") is False:
             own = resampled.get(record["span_id"])
+            if own and own.get("preferred", verdict["preferred"]) != verdict["preferred"]:
+                own = None  # sampled for an older verdict: the teacher now prefers something else
             if own:
                 target = {"reasoning": own["reasoning"], "content": own.get("content") or "",
                           "tool_call": {"name": "submit_action", "arguments": own["arguments"]}}
@@ -170,7 +172,7 @@ def main() -> None:
         for line in args.resampled.open(encoding="utf-8"):
             item = json.loads(line)
             if item.get("reply"):
-                resampled[item["span_id"]] = item["reply"]
+                resampled[item["span_id"]] = item["reply"] | {"preferred": item.get("preferred")}
     con = db.connect(args.db)
     rows = []
     for line in args.joined.open(encoding="utf-8"):

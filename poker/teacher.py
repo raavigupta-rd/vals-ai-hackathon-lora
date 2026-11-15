@@ -203,6 +203,9 @@ def free_fold_verdict(to_call: float, action: str) -> str | None:
 
 
 POPULATION_MIN = 10  # below this many own shoves, add the population's shove hands to the range
+# Seats are anonymous to the student (seat0..seat5), so a per-team range is information it can never use at
+# inference. By default every range is field-level: what all players did in this spot (current hand excluded).
+PER_OPPONENT = False
 
 
 def shove_range(con, sub_key: str, exclude: tuple[str, int] | None = None) -> tuple[list[str], int]:
@@ -216,8 +219,8 @@ def shove_range(con, sub_key: str, exclude: tuple[str, int] | None = None) -> tu
     skip = exclude or ("", -1)
     own = [r[0] for r in con.execute(query + " AND sub_key=?", (*skip, sub_key))]
     codes = list(own)
-    if len(own) < POPULATION_MIN:
-        codes += [r[0] for r in con.execute(query, skip)]
+    if not PER_OPPONENT or len(own) < POPULATION_MIN:
+        codes = ([] if not PER_OPPONENT else codes) + [r[0] for r in con.execute(query, skip)]
     return sorted(set(codes)), len(own)
 
 
@@ -331,7 +334,7 @@ def postflop_class_counts(con, bettor, exclude: tuple[str, int] | None = None) -
 
     own = classify(con.execute(query + " AND a.sub_key=?", (*args, bettor["sub_key"])))
     n = sum(own.values())
-    if n >= POSTFLOP_MIN:
+    if PER_OPPONENT and n >= POSTFLOP_MIN:
         return own, n
     both = classify(con.execute(query, args))
     return both, n

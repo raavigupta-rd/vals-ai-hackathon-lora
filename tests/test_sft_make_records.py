@@ -87,3 +87,12 @@ def test_template_weight_zero_keeps_only_validated_corrections():
     own = {"own": {"reasoning": "mine", "content": "", "arguments": {"action": "fold"}}}
     records, stats = select(rows, cycle=2, abstain_ratio=0, seed=0, resampled=own, template_weight=0)
     assert [r["decision_id"] for r in records] == ["own"] and stats["unvalidated_dropped"] == 1
+
+
+def test_a_resampled_reply_is_ignored_when_the_teachers_preference_changed():
+    verdict = {"rule": "allin_call", "preferred": "call", "agree": False, "equity": 0.7, "required": 0.5,
+               "to_call": 190, "pot": 200}
+    stale = {"x": {"reasoning": "fold it", "content": "", "arguments": {"action": "fold"}, "preferred": "fold"}}
+    records, stats = select([(joined("x", "fold"), verdict, "KK")], cycle=3, abstain_ratio=0, seed=0,
+                            resampled=stale, template_weight=0)
+    assert records == [] and stats["unvalidated_dropped"] == 1

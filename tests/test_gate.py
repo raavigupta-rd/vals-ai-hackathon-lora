@@ -120,3 +120,9 @@ def test_chat_messages_function_items():
     out = gate.chat_messages(items)
     assert out[1]["tool_calls"][0]["function"]["name"] == "submit_action" and out[1]["content"] == "thinking"
     assert out[2] == {"role": "tool", "tool_call_id": "c1", "content": "ok"}
+
+
+def test_repeats_sample_each_judged_spot_several_times():
+    entries = [entry(i, "fold" if i % 3 == 0 else None) for i in range(60)]
+    spots = gate.select_spots(entries, n_judged=None, n_other=10, seed=1, repeats=3)
+    assert sum(x["group"] == "judged" for x in spots) == 60 and sum(x["group"] == "other" for x in spots) == 10

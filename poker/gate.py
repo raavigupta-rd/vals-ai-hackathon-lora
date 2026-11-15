@@ -143,7 +143,7 @@ def original_action(record: dict) -> str | None:
     return action if action in ACTIONS else None
 
 
-def select_spots(entries: list[dict], *, n_judged: int | None, n_other: int, seed: int) -> list[dict]:
+def select_spots(entries: list[dict], *, n_judged: int | None, n_other: int, seed: int, repeats: int = 1) -> list[dict]:
     """entries: {record, verdict}. Judged = verdict.preferred is not None. Deterministic for a fixed seed,
     whatever the input order."""
     key = lambda e: e["record"]["span_id"]  # noqa: E731
@@ -153,7 +153,8 @@ def select_spots(entries: list[dict], *, n_judged: int | None, n_other: int, see
     if n_judged is not None and n_judged < len(judged):
         judged = rng.sample(judged, n_judged)
     other = rng.sample(other, min(n_other, len(other)))
-    return [dict(e, group="judged") for e in judged] + [dict(e, group="other") for e in other]
+    # Sampling at temperature is noisy; replaying each judged spot `repeats` times averages that noise out.
+    return [dict(e, group="judged") for e in judged for _ in range(repeats)] + [dict(e, group="other") for e in other]
 
 
 def quantile(values: list[float], p: float) -> float | None:
@@ -257,6 +258,7 @@ def main() -> None:
     parser.add_argument("--source-deployment", help="only arena decisions made by this deployment id")
     parser.add_argument("--n-judged", type=int, default=None, help="default: all teacher-judged spots")
     parser.add_argument("--n-other", type=int, default=150)
+    parser.add_argument("--repeats", type=int, default=3, help="replays per judged spot")
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=None)
@@ -264,7 +266,7 @@ def main() -> None:
     client = HttpClient(load_api_key())
     started = time.monotonic()
     entries = load_entries(args.joined, args.db, args.source_deployment)
-    spots = select_spots(entries, n_judged=args.n_judged, n_other=args.n_other, seed=args.seed)
+    spots = select_spots(entries, n_judged=args.n_judged, n_other=args.n_other, seed=args.seed, repeats=args.repeats)
     print(f"{len(entries)} arena decisions; replaying {len(spots)} x {len(args.deployment)} deployments", flush=True)
     result = run_gate(spots, args.deployment, client, chat_tools(), args.concurrency)
     out = args.out or Path("data/gate") / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".json")

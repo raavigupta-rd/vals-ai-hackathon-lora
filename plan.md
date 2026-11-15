@@ -434,6 +434,12 @@ The goal is the best final placement against the entries actually in the arena, 
 4. The leaderboard before 2 PM is only for development. It does not count.
 5. Final standings come from one Official Tournament after 2 PM, played by every team's last submission before the cutoff.
 6. Test the baseline model in the arena too, to see where it is weak and improve it.
+7. (Sun Nov 15, relayed by A) Table-talk prompt injection is allowed, and the judges called it a "unicorn strategy": fake
+   system or dealer notes, pressure to fold, gaslighting. The harness sanitizes talk (lowercase; letters, digits and
+   `. , ! ? - : ;` only; 70 characters), shows it in quotes, and every prompt calls talk unverified. Nobody in the
+   field used injection lines as of Sunday 1 AM. Plan: measure offline which lines make `base` (the shared base model,
+   our proxy for the field) fold (`poker/inject/probe.py`); train defense (ignore talk) into every arm, and the best
+   lines into one offensive arm.
 
 What this means for us:
 - Probes are free. Run as many as GPUs allow, at any time before the final entry.

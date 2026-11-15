@@ -249,3 +249,38 @@ def test_postflop_call_corrections_need_extra_margin_before_the_river(monkeypatc
                                     hand_number=10)
     assert flop["preferred"] is None  # 0.11 above the price is not enough when more betting can follow
     assert river["preferred"] == "call"
+
+
+from poker.teacher import facing_raise_verdict, in_range, open_shove_verdict
+
+
+def test_in_range_parses_compact_range_notation():
+    spec = "66+ ATs+ KQs AJo+ KQo"
+    assert in_range("77", spec) and in_range("AA", spec) and not in_range("55", spec)
+    assert in_range("AJs", spec) and not in_range("A9s", spec)
+    assert in_range("AQo", spec) and not in_range("ATo", spec)
+    assert in_range("KQs", spec) and in_range("KQo", spec) and not in_range("KJs", spec)
+
+
+def test_tighter_early_position_opens():
+    assert open_verdict("K9o", "UTG", "raise") == "fold"
+    assert open_verdict("A8o", "HJ", "raise") == "fold"
+    assert open_verdict("ATs", "UTG", "raise") is None
+    assert open_verdict("A5s", "CO", "raise") is None
+
+
+def test_facing_a_raise_flags_weak_continues_but_not_cheap_big_blind_defense():
+    assert facing_raise_verdict("K7o", "CO", "call", raises_before=1, to_call=4, stack=200) == "fold"
+    assert facing_raise_verdict("JTs", "BTN", "call", raises_before=1, to_call=4, stack=200) is None
+    assert facing_raise_verdict("A9o", "HJ", "raise", raises_before=1, to_call=4, stack=200) == "fold"
+    assert facing_raise_verdict("K7o", "BB", "call", raises_before=1, to_call=3, stack=200) is None  # cheap defense
+    assert facing_raise_verdict("99", "CO", "call", raises_before=2, to_call=14, stack=200) == "fold"  # vs a 3-bet
+    assert facing_raise_verdict("QQ", "CO", "call", raises_before=2, to_call=14, stack=200) is None
+    assert facing_raise_verdict("K7o", "CO", "fold", raises_before=1, to_call=4, stack=200) is None
+
+
+def test_open_shoves_need_a_shove_range_for_the_stack_depth():
+    assert open_shove_verdict("J4o", effective_bb=100) == "fold"
+    assert open_shove_verdict("QQ", effective_bb=100) is None
+    assert open_shove_verdict("A9s", effective_bb=100) == "fold"
+    assert open_shove_verdict("A9s", effective_bb=12) is None  # short stacks shove wider

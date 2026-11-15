@@ -129,6 +129,59 @@ def _trash(code: str) -> bool:
     return hi != lo and hi < RANKS.index("T") and not (kind == "s" and hi - lo <= 2)
 
 
+def _expand(token: str) -> set[str]:
+    """One range token: '66+', '77', 'ATs+', 'KQo', 'KJo+' -> hand codes."""
+    plus = token.endswith("+")
+    t = token.rstrip("+")
+    hi, lo = RANKS.index(t[0]), RANKS.index(t[1])
+    if hi == lo:
+        return {RANKS[r] * 2 for r in range(hi, len(RANKS))} if plus else {t}
+    kind = t[2]
+    kickers = range(lo, hi) if plus else [lo]
+    return {RANKS[hi] + RANKS[k] + kind for k in kickers}
+
+
+@lru_cache(maxsize=256)
+def _range_set(spec: str) -> frozenset[str]:
+    return frozenset(code for token in spec.split() for code in _expand(token))
+
+
+def in_range(code: str, spec: str) -> bool:
+    hi, lo, kind = _parts(code)
+    norm = RANKS[hi] + RANKS[lo] + kind
+    return norm in _range_set(spec)
+
+
+# Standard-ish 6-max opening ranges for early seats (teacher v3). BTN/SB steals keep the trash-only check.
+OPEN_RANGES = {
+    "UTG": "66+ ATs+ KTs+ QTs+ JTs AJo+ KQo",
+    "HJ": "55+ A8s+ K9s+ QTs+ JTs T9s ATo+ KJo+",
+    "CO": "22+ A2s+ K8s+ Q9s+ J9s+ T9s 98s 87s 76s A9o+ KTo+ QTo+ JTo",
+}
+CONTINUE_VS_RAISE = "66+ A9s+ KTs+ QTs+ JTs T9s 98s AJo+ KQo"
+CONTINUE_VS_3BET = "JJ+ AQs+ AKo"
+SHOVE_RANGES = ((40, "TT+ AQs+ AKo"), (20, "77+ ATs+ AJo+ KQs"), (0, "22+ A2s+ A7o+ K9s+ KJo+ QTs+ JTs"))
+
+
+def facing_raise_verdict(code: str, position: str, action: str, *, raises_before: int, to_call: float,
+                         stack: float) -> str | None:
+    """Preflop, facing a raise that is not all-in: continuing (call or re-raise) outside a sane range is a fold.
+    Cheap big-blind defense (to call 4 or less) is not judged, and folds are never flagged."""
+    if action not in ("call", "raise"):
+        return None
+    if position in ("BB", "HU_BB") and to_call <= 4 and raises_before == 1:
+        return None
+    big = stack and to_call >= 0.3 * stack
+    spec = CONTINUE_VS_3BET if raises_before >= 2 or big else CONTINUE_VS_RAISE
+    return None if in_range(code, spec) else "fold"
+
+
+def open_shove_verdict(code: str, effective_bb: float) -> str | None:
+    """Our preflop all-in raise: outside the shove range for this stack depth, fold (busting ranks last)."""
+    spec = next(spec for floor, spec in SHOVE_RANGES if effective_bb > floor)
+    return None if in_range(code, spec) else "fold"
+
+
 def open_verdict(code: str, position: str, action: str, to_call: float = 2) -> str | None:
     """Unopened preflop pot. Late-position raises are steals against a fold-heavy field, so only trash is flagged
     there; limps (calls) with hands outside the loose range are always flagged. A free check beats a fold."""
@@ -136,6 +189,8 @@ def open_verdict(code: str, position: str, action: str, to_call: float = 2) -> s
         return "raise" if code in PREMIUM else None
     if action == "raise" and position in LATE:
         bad = _trash(code)
+    elif position in OPEN_RANGES and action in ("raise", "call"):
+        bad = not in_range(code, OPEN_RANGES[position])
     else:
         bad = action in ("raise", "call") and not _in_loose_range(code, position)
     if not bad:
@@ -354,11 +409,21 @@ def judge(con, match_id: str, hand: int, seat: int, action_index: int) -> dict:
         return verdict
     before = [r for r in rows if r["idx"] < row["idx"]]
     raises = [r for r in before if r["street"] == "preflop" and r["action"] in ("raise", "bet")]
+    stack0 = row["stack_after"] - (row["chip_change"] or 0)
+    if actual == "raise" and row["stack_after"] == 0 and not (raises and raises[-1]["stack_after"] == 0):
+        preferred = open_shove_verdict(row["hand_code"], (row["effective_stack"] or stack0) / 2)
+        agree = None if preferred is None else preferred == actual
+        return verdict | {"rule": "own_shove", "preferred": preferred, "agree": agree}
     if not raises and row["to_call"] <= 2:
         preferred = open_verdict(row["hand_code"], row["position"], actual, to_call=row["to_call"])
         agree = None if preferred is None else preferred == actual
         return verdict | {"rule": "unopened", "preferred": preferred, "agree": agree}
-    stack_before = row["stack_after"] - (row["chip_change"] or 0)
+    stack_before = stack0
+    if raises and raises[-1]["stack_after"] != 0:
+        preferred = facing_raise_verdict(row["hand_code"], row["position"], actual, raises_before=len(raises),
+                                         to_call=row["to_call"], stack=stack_before)
+        agree = None if preferred is None else preferred == actual
+        return verdict | {"rule": "facing_raise", "preferred": preferred, "agree": agree}
     callers_after_shove = 0
     if raises and raises[-1]["stack_after"] == 0 and actual in ("call", "fold"):
         shover = raises[-1]

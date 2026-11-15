@@ -61,7 +61,21 @@ def test_corrections_prefer_the_models_own_resampled_reply():
     resampled = {"own": {"reasoning": "In my own words: fold.", "content": "", "arguments": {"action": "fold"}}}
     records, stats = select(rows, cycle=2, abstain_ratio=0, seed=0, resampled=resampled)
     by_id = {r["decision_id"]: r for r in records}
-    assert by_id["own"]["source"] == "teacher_resampled" and by_id["own"]["weight"] == 2.0
+    assert by_id["own"]["source"] == "teacher_resampled" and by_id["own"]["weight"] == 3.0  # all-in calls are bust rules
     assert by_id["own"]["target"]["reasoning"] == "In my own words: fold."
     assert by_id["tmpl"]["source"] == "teacher_correction" and by_id["tmpl"]["weight"] == 1.0
     assert stats["resampled"] == 1 and stats["corrections"] == 2
+
+
+def test_v3_rules_have_correction_text_and_bust_rules_weigh_more():
+    assert "fold" in correction_reasoning({"rule": "facing_raise", "preferred": "fold"}, hand_code="K7o").lower()
+    assert "fold" in correction_reasoning({"rule": "own_shove", "preferred": "fold"}, hand_code="J4o").lower()
+    shove = {"rule": "allin_call", "preferred": "fold", "agree": False, "equity": 0.3, "required": 0.55,
+             "to_call": 190, "pot": 200}
+    raise_ = {"rule": "facing_raise", "preferred": "fold", "agree": False}
+    own = {"s": {"reasoning": "own", "content": "", "arguments": {"action": "fold"}},
+           "r": {"reasoning": "own", "content": "", "arguments": {"action": "fold"}}}
+    records, _ = select([(joined("s", "call"), shove, "96o"), (joined("r", "call"), raise_, "K7o")],
+                        cycle=3, abstain_ratio=0, seed=0, resampled=own)
+    by_id = {r["decision_id"]: r for r in records}
+    assert by_id["s"]["weight"] == 3.0 and by_id["r"]["weight"] == 2.0

@@ -22,6 +22,8 @@ from pathlib import Path
 from poker.hints import parse_prompt
 
 CORRECTION_WEIGHT = 2.0  # a correction in the model's own words (resampled)
+BUST_RULES = ("allin_call", "own_shove")  # mistakes that bust us: placement drops ~2.4 places
+BUST_WEIGHT = 3.0
 TEMPLATE_WEIGHT = 1.0  # fixed-sentence fallback: cycle 1 showed these get memorized, so they count less
 AGREE_WEIGHT = 1.0
 ABSTAIN_WEIGHT = 1.0
@@ -77,6 +79,12 @@ def correction_reasoning(verdict: dict, hand_code: str) -> str:
             return f"{hand_code} is weak and checking is free. Check and see the flop."
         return (f"{hand_code} is too weak to play from this seat, and limping or raising it loses chips over time. "
                 f"Fold and wait for a better spot.")
+    if rule == "facing_raise":
+        return (f"Someone has already raised. {hand_code} is not strong enough to continue against a raise, and "
+                f"calling or re-raising with it loses chips and risks my stack. Fold.")
+    if rule == "own_shove":
+        return (f"Going all-in with {hand_code} at this stack depth risks my whole stack with a hand that is behind "
+                f"most calling ranges. Busting ranks last. Fold and wait for a better spot.")
     if rule == "free_fold":
         return "Checking costs nothing, so folding can only lose. Check."
     raise ValueError(f"no correction text for rule {rule!r}")
@@ -112,7 +120,8 @@ def select(rows, *, cycle: int, abstain_ratio: float = 2.0, seed: int = 0, resam
             if own:
                 target = {"reasoning": own["reasoning"], "content": own.get("content") or "",
                           "tool_call": {"name": "submit_action", "arguments": own["arguments"]}}
-                records.append(base(record, "teacher_resampled", CORRECTION_WEIGHT, target))
+                weight = BUST_WEIGHT if verdict.get("rule") in BUST_RULES else CORRECTION_WEIGHT
+                records.append(base(record, "teacher_resampled", weight, target))
                 stats["resampled"] += 1
                 stats["corrections"] += 1
                 continue

@@ -1,0 +1,46 @@
+MIRROR SCROLL
+
+An ancient scroll consists of N lowercase English letters indexed 1 to N. Process Q operations of two types:
+- 1 P C: replace the character at position P with lowercase letter C.
+- 2 L R: check whether the substring from position L to position R (inclusive) reads the same forwards and backwards (is a palindrome).
+
+Input
+The first line contains N and Q.
+The second line contains the initial string of length N.
+Each of the next Q lines describes an operation in one of the two formats above. At least one operation is of type 2.
+
+Output
+For each operation of type 2, print YES if the substring is a palindrome, or NO otherwise.
+
+Constraints
+1 <= N, Q <= 200000
+1 <= P <= N
+1 <= L <= R <= N
+All characters are lowercase English letters ('a'-'z').
+
+Sample input 1 (file sample_1.in)
+7 5
+abacaba
+2 1 7
+2 2 5
+1 4 z
+2 1 7
+1 2 c
+
+Sample output 1 (file sample_1.out)
+YES
+NO
+YES
+
+Sample input 2 (file sample_2.in)
+5 3
+abcba
+2 1 5
+1 2 x
+2 1 5
+
+Sample output 2 (file sample_2.out)
+YES
+NO
+
+Limits: 2 seconds and 1024 MiB of memory per test.

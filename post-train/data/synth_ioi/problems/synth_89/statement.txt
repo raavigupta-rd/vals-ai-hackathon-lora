@@ -1,0 +1,43 @@
+IMPERIAL RESEARCH GRANTS
+
+Along a trade corridor lie N sequential highway sections numbered 1 to N. Rehabilitating section i costs C_i gold.
+
+There are M merchant guild charters: charter j pays a bonus of P_j gold IF AND ONLY IF EVERY highway section k satisfying L_j <= k <= R_j has been rehabilitated.
+
+Choose a subset of highway sections to rehabilitate (possibly empty) maximizing your NET PROFIT:
+(total bonuses of all satisfied charters) - (total rehabilitation cost of chosen sections).
+
+Input
+The first line contains N and M.
+The second line contains C_1 ... C_N.
+Each of the next M lines contains L_j, R_j, and P_j.
+
+Output
+Print a single integer: the maximum achievable net profit.
+
+Constraints
+1 <= N, M <= 160000
+0 <= C_i, P_j <= 10^9
+1 <= L_j <= R_j <= N
+
+Sample input 1 (file sample_1.in)
+5 4
+4 3 5 2 6
+1 2 8
+2 4 9
+4 5 7
+1 5 3
+
+Sample output 1 (file sample_1.out)
+7
+
+Sample input 2 (file sample_2.in)
+3 2
+10 10 10
+1 2 5
+2 3 6
+
+Sample output 2 (file sample_2.out)
+0
+
+Limits: 2 seconds and 1024 MiB of memory per test.

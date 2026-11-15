@@ -1,0 +1,41 @@
+SUNKEN CAUSEWAYS
+
+An archipelago has N islands numbered 1 to N and M bidirectional stone causeways. Causeway i connects islands U_i and V_i at deck elevation H_i. When the sea tide rises to level T, every causeway with H_i <= T is submerged and impassable, while causeways with H_i > T remain open.
+
+You are given Q tide forecasts. Each forecast specifies a starting island S and a tide level T: count how many islands (including S itself) can be reached from S using only open causeways.
+
+Input
+The first line contains N, M, and Q.
+Each of the next M lines contains U_i, V_i, and H_i.
+Each of the next Q lines contains S and T.
+
+Output
+For each forecast print the number of reachable islands on its own line.
+
+Constraints
+1 <= N <= 200000
+0 <= M <= 200000
+1 <= Q <= 200000
+1 <= U_i, V_i, S <= N
+1 <= H_i <= 10^9
+0 <= T <= 10^9
+
+Sample input 1 (file sample_1.in)
+5 5 4
+1 2 5
+2 3 8
+3 4 3
+4 5 9
+1 5 2
+2 4
+2 8
+4 3
+1 1
+
+Sample output 1 (file sample_1.out)
+3
+1
+2
+5
+
+Limits: 2 seconds and 1024 MiB of memory per test.

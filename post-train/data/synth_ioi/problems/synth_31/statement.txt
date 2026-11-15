@@ -1,0 +1,38 @@
+HARMONIC CHIMES
+
+A bell tower houses N chimes numbered 1 to N, where chime i has resonance integer A_i. Initially, all N chimes are silent (OFF).
+
+You process Q toggle events. Each event gives an index X (1 <= X <= N): if chime X is currently OFF it turns ON, and if it is currently ON it turns OFF. After each event, report the number of unordered pairs of distinct currently-ON chimes {i, j} such that gcd(A_i, A_j) = 1.
+
+Input
+The first line contains N and Q.
+The second line contains A_1 ... A_N.
+Each of the next Q lines contains X.
+
+Output
+Print Q lines: after each toggle, the number of coprime active pairs.
+
+Constraints
+1 <= N, Q <= 180000
+1 <= A_i <= 500000
+1 <= X <= N
+
+Sample input 1 (file sample_1.in)
+5 6
+2 3 4 6 1
+1
+2
+3
+4
+5
+2
+
+Sample output 1 (file sample_1.out)
+0
+1
+2
+2
+6
+3
+
+Limits: 2 seconds and 1024 MiB of memory per test.

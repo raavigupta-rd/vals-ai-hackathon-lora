@@ -1,0 +1,27 @@
+EXTREMAL SUBARRAYS
+
+Given an integer array A_1, A_2, ..., A_N, define for every contiguous subarray [L, R] (1 <= L <= R <= N):
+- mx(L, R) = max(A_L, A_{L+1}, ..., A_R),
+- mn(L, R) = min(A_L, A_{L+1}, ..., A_R).
+
+Compute the sum of mx(L, R) * mn(L, R) over all N * (N + 1) / 2 subarrays [L, R], modulo 10^9 + 7.
+
+Input
+The first line contains N.
+The second line contains A_1 ... A_N.
+
+Output
+Print the sum of mx(L, R) * mn(L, R) over all 1 <= L <= R <= N, modulo 10^9 + 7.
+
+Constraints
+1 <= N <= 180000
+1 <= A_i <= 10^9
+
+Sample input 1 (file sample_1.in)
+4
+2 5 1 4
+
+Sample output 1 (file sample_1.out)
+80
+
+Limits: 2 seconds and 1024 MiB of memory per test.

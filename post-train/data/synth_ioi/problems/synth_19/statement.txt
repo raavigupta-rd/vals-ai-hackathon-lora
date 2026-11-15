@@ -1,0 +1,29 @@
+MERCENARY WATCH
+
+A fortress wall must be guarded continuously across N discrete hours numbered 1 to N. M mercenaries apply for work: mercenary i offers to guard every integer hour from L_i to R_i inclusive in exchange for wage W_i.
+
+Select a subset of mercenaries so that every hour 1, 2, ..., N is guarded by at least one hired mercenary, minimizing the total wage paid (or report -1 if it is impossible to cover all N hours).
+
+Input
+The first line contains N and M.
+Each of the next M lines contains L_i, R_i, and W_i.
+
+Output
+Print a single integer: the minimum total wage, or -1 if impossible.
+
+Constraints
+1 <= N, M <= 200000
+1 <= L_i <= R_i <= N
+1 <= W_i <= 10^9
+
+Sample input 1 (file sample_1.in)
+6 4
+1 3 10
+2 5 15
+4 6 12
+1 6 30
+
+Sample output 1 (file sample_1.out)
+22
+
+Limits: 2 seconds and 1024 MiB of memory per test.

@@ -1,0 +1,32 @@
+DOMINO CASCADE
+
+N dominoes stand along a number line at strictly increasing integer coordinates X_1 < X_2 < ... < X_N. Domino i has positive height H_i.
+
+If you tip domino i to the right, it falls and knocks over every domino j > i satisfying X_j <= X_i + H_i. Every domino that is knocked over also falls to the right and knocks over further dominoes by the same rule, creating a chain reaction.
+
+For EACH starting domino i = 1, 2, ..., N (considered independently, starting with all dominoes upright), compute how many dominoes in total end up knocked over (including domino i itself).
+
+Input
+The first line contains N.
+Each of the next N lines contains X_i and H_i (with X_1 < X_2 < ... < X_N).
+
+Output
+Print N space-separated integers: the total number of toppled dominoes when pushing domino 1, 2, ..., N.
+
+Constraints
+1 <= N <= 200000
+0 <= X_1 < X_2 < ... < X_N <= 10^9
+1 <= H_i <= 10^9
+
+Sample input 1 (file sample_1.in)
+5
+1 2
+3 1
+5 4
+7 1
+10 5
+
+Sample output 1 (file sample_1.out)
+2 1 2 1 1
+
+Limits: 2 seconds and 1024 MiB of memory per test.

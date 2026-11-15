@@ -1,0 +1,32 @@
+EXACT GCD TRIPLES
+
+You are given N positive integers A_1, A_2, ..., A_N and Q queries. Each query specifies an integer G: count how many triples of indices (i, j, k) with 1 <= i < j < k <= N satisfy gcd(A_i, A_j, A_k) = G.
+
+Input
+The first line contains N and Q.
+The second line contains A_1 ... A_N.
+Each of the next Q lines contains G.
+
+Output
+For each query print the number of triples with GCD equal to G on its own line.
+
+Constraints
+3 <= N <= 200000
+1 <= Q <= 200000
+1 <= A_i, G <= 300000
+
+Sample input 1 (file sample_1.in)
+6 4
+2 4 6 12 3 9
+1
+2
+3
+4
+
+Sample output 1 (file sample_1.out)
+12
+4
+4
+0
+
+Limits: 2 seconds and 1024 MiB of memory per test.

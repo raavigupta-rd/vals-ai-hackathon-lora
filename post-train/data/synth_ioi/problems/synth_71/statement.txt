@@ -1,0 +1,28 @@
+SKYLINE SHADOWS
+
+On a flat plain, N rectangular solar canopies cast shadows on the ground. Canopy i covers the axis-aligned rectangle [X_{1,i}, X_{2,i}] x [Y_{1,i}, Y_{2,i}] (with X_{1,i} < X_{2,i} and Y_{1,i} < Y_{2,i}). Canopies may overlap arbitrarily.
+
+Compute the exact total area of the union of all N rectangles.
+
+Input
+The first line contains N.
+Each of the next N lines contains four integers X_{1,i}, Y_{1,i}, X_{2,i}, and Y_{2,i}.
+
+Output
+Print a single integer: the exact area of the union of the N rectangles.
+
+Constraints
+1 <= N <= 150000
+0 <= X_{1,i} < X_{2,i} <= 10^9
+0 <= Y_{1,i} < Y_{2,i} <= 10^9
+
+Sample input 1 (file sample_1.in)
+3
+1 1 5 4
+3 2 7 6
+6 1 8 3
+
+Sample output 1 (file sample_1.out)
+27
+
+Limits: 2 seconds and 1024 MiB of memory per test.

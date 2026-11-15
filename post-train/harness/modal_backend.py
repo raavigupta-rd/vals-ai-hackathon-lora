@@ -31,8 +31,10 @@ app = modal.App(APP_NAME)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 
 
-@app.function(image=image, volumes={"/work/tests": volume}, cpu=1.0, memory=3072, timeout=900,
-              max_containers=int(os.environ.get("MODAL_MAX_CONTAINERS", 128)), block_network=True)
+# Stay under the workspace container cap: 50 containers x 2 inputs, 2 CPUs each (1 core per program).
+@app.function(image=image, volumes={"/work/tests": volume}, cpu=2.0, memory=6144, timeout=900,
+              max_containers=int(os.environ.get("MODAL_MAX_CONTAINERS", 50)), block_network=True)
+@modal.concurrent(max_inputs=2)
 def execute(code: str, spec: dict | None = None) -> dict:
     """Compile `code`; if `spec` is given, run it (stdin_file / tests) like runner_in_container."""
     import subprocess
@@ -70,13 +72,24 @@ def execute(code: str, spec: dict | None = None) -> dict:
     work = Path(tempfile.mkdtemp(prefix="run-"))
     os.chmod(work, 0o777)
     # gVisor's rusage CPU accounting is unreliable (trivial programs report ~2.5 s user time),
-    # so judge wall time; one input per container (no @modal.concurrent) keeps it uncontended.
+    # so judge wall time; 2 inputs on 2 CPUs keeps each program on its own core.
     spec = dict(spec, binary=str(binary), out_dir=str(work / "out"), timing="wall")
     if spec.get("stdin") is not None:
         f = work / "in.txt"
         f.write_text(spec.pop("stdin"))
         os.chmod(f, 0o644)
         spec["stdin_file"] = str(f)
+    if spec.get("inline_tests") is not None:
+        # tests shipped with the call (e.g. samples, which aren't on the volume); root-only perms
+        tests = []
+        for i, (inp, exp) in enumerate(spec.pop("inline_tests")):
+            fi, fo = work / f"t{i}.in", work / f"t{i}.out"
+            fi.write_text(inp)
+            fo.write_text(exp)
+            os.chmod(fi, 0o600)
+            os.chmod(fo, 0o600)
+            tests.append({"in": str(fi), "out": str(fo)})
+        spec["tests"] = tests
     try:
         results = R.run_spec(spec)  # same judging code as the local runner
     finally:

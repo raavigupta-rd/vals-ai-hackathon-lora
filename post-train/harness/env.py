@@ -26,7 +26,7 @@ from tinker_cookbook.renderers import Renderer, get_text_content
 from tinker_cookbook.renderers.base import Message
 from tinker_cookbook.rl import types
 from tinker_cookbook.rl.message_env import EnvFromMessageEnv, MessageStepResult
-from tinker_cookbook.rl.rollout_limits import ParseErrorPolicy
+from tinker_cookbook.rl.rollout_limits import ParseErrorPolicy, RolloutLimits
 from tinker_cookbook.tool_use import ToolResult, simple_tool_result, tool
 from tinker_cookbook.tool_use.agent_tool_message_env import AgentToolMessageEnv
 
@@ -102,8 +102,8 @@ class CPTools:
         self.last_compiled_code = code
         # Judge samples exactly like hidden tests: inside the sandbox, with the problem's checker if any.
         checker = sandbox.tests_dir() / self.p["checker"] if self.p.get("checker") else None
-        runs = await sandbox.run_tests(comp.binary, sample_files(self.p), self.p["time_limit"],
-                                       self.p["memory_limit"], checker=checker, keep_stdout=True)
+        runs = await sandbox.run_tests_inline(comp.binary, [tuple(x) for x in self.p["samples"]], self.p["time_limit"],
+                                              self.p["memory_limit"], checker=checker, keep_stdout=True)
         results = []
         for i, ((_, exp), r) in enumerate(zip(self.p["samples"], runs), 1):
             ok = bool(r.passed)
@@ -198,15 +198,22 @@ def hint_text(reference_code: str, level: float) -> str:
             "```cpp\n" + "\n".join(lines[:k]) + "\n```")
 
 
-def initial_messages(problem: dict, renderer: Renderer, tools: CPTools, hint: str = "") -> list[Message]:
+THINK_SHORT = ("\n\nThink briefly and concretely. Once you have a candidate approach, stop reasoning and call "
+               "run_cpp to test it instead of deliberating at length. Never restate the same idea twice; "
+               "if you are going in circles, write the code and test it.")
+
+
+def initial_messages(problem: dict, renderer: Renderer, tools: CPTools, hint: str = "",
+                     system_extra: str = "") -> list[Message]:
     specs = [tools.run_cpp.to_spec(), tools.submit.to_spec()]
-    prefix = renderer.create_conversation_prefix_with_tools(tools=specs, system_prompt=SYSTEM_PROMPT)
+    prefix = renderer.create_conversation_prefix_with_tools(tools=specs, system_prompt=SYSTEM_PROMPT + system_extra)
     return prefix + [{"role": "user", "content": problem["statement"] + hint}]
 
 
 def build_env(problem: dict, renderer: Renderer, *, max_turns: int = MAX_TURNS,
               max_trajectory_tokens: int = 60_000, max_generation_tokens: int = 16_384,
-              score_mode: str = "subtask", hint: str = "") -> tuple[EnvFromMessageEnv, ValsMessageEnv]:
+              score_mode: str = "subtask", hint: str = "",
+              system_extra: str = "") -> tuple[EnvFromMessageEnv, ValsMessageEnv]:
     tools = CPTools(problem)
     holder: dict = {}
 
@@ -218,7 +225,7 @@ def build_env(problem: dict, renderer: Renderer, *, max_turns: int = MAX_TURNS,
 
     msg_env = ValsMessageEnv(
         tools=[tools.run_cpp, tools.submit],
-        initial_messages=initial_messages(problem, renderer, tools, hint),
+        initial_messages=initial_messages(problem, renderer, tools, hint, system_extra),
         max_turns=max_turns,
         reward_fn=reward_fn,
         tool_execution="sequential",
@@ -226,9 +233,14 @@ def build_env(problem: dict, renderer: Renderer, *, max_turns: int = MAX_TURNS,
         cp_tools=tools,
         result=holder,
     )
+    # Runner-owned budgets: each turn is capped at min(max_generation_tokens, max_trajectory_tokens -
+    # current context), so episodes can use the whole context instead of stopping once
+    # context + a full per-turn budget no longer fits. Ending by budget is fine: grading is done from
+    # the last compiling submission afterwards (eval.py / rl_env.compute_group_rewards).
     env = EnvFromMessageEnv(
         renderer=renderer, message_env=msg_env, failed_parse_reward=0.0,
-        max_trajectory_tokens=max_trajectory_tokens, max_generation_tokens=max_generation_tokens,
         context_overflow_reward=0.0, terminate_on_length=False,
+        rollout_limits=RolloutLimits(max_turn_tokens=max_generation_tokens,
+                                     max_trajectory_tokens=max_trajectory_tokens),
     )
     return env, msg_env

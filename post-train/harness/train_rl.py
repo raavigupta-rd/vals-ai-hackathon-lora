@@ -53,8 +53,10 @@ class CLIConfig:
     kl_penalty_coef: float = 0.0
     max_steps: int | None = None
 
-    max_tokens: int = 16_384  # per turn
-    max_trajectory_tokens: int = 48_000
+    max_tokens: int = 32_768  # per turn (runner caps each turn at the remaining context)
+    max_trajectory_tokens: int = 64_000  # Qwen3.5-9B on Tinker has a 64K context
+    think_short_p0: float = 1.0
+    think_short_anneal_steps: int = 6
     max_turns: int = 100
     score_mode: str = "subtask"
     turn_bonus: float = 0.04
@@ -83,6 +85,7 @@ async def cli_main(c: CLIConfig) -> None:
         max_trajectory_tokens=c.max_trajectory_tokens, max_generation_tokens=c.max_tokens,
         score_mode=c.score_mode, turn_bonus=c.turn_bonus, turn_bonus_horizon=c.turn_bonus_horizon,
         solutions_path=c.solutions_path, eval_group_size=c.eval_group_size,
+        think_short_p0=c.think_short_p0, think_short_anneal_steps=c.think_short_anneal_steps,
     )
     config = Config(
         learning_rate=c.learning_rate, dataset_builder=dataset_builder, model_name=c.model_name,

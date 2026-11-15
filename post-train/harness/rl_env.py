@@ -27,7 +27,7 @@ from tinker_cookbook.rl.types import Env, EnvGroupBuilder, Metrics, RLDataset, R
 from tinker_cookbook.tokenizer_utils import get_tokenizer
 
 from harness import sandbox
-from harness.env import build_env, grade, hint_text
+from harness.env import THINK_SHORT, build_env, grade, hint_text
 from harness.problems import load
 
 
@@ -49,17 +49,26 @@ class CPEnvGroupBuilder(EnvGroupBuilder):
     turn_bonus_horizon: int = 10
     hint: str = ""  # eval-only truncation hint appended to the statement
     tag: str = "train"
+    # "think short" system instruction given to each rollout with this probability (annealed to 0 over
+    # training, so the habit is learned without the cue; held-out eval never gets it)
+    instruct_prob: float = 0.0
+    seed: int = 0
     _msg_envs: list = field(default_factory=list, repr=False)
 
     async def make_envs(self) -> Sequence[Env]:
         renderer = renderers.get_renderer(self.renderer_name, get_tokenizer(self.model_name))
         envs = []
         self._msg_envs = []
+        self._instructed = []
+        rng = random.Random(self.seed)
         for _ in range(self.group_size):
+            instructed = rng.random() < self.instruct_prob
+            self._instructed.append(instructed)
             env, msg_env = build_env(
                 self.problem, renderer, max_turns=self.max_turns,
                 max_trajectory_tokens=self.max_trajectory_tokens,
                 max_generation_tokens=self.max_generation_tokens, hint=self.hint,
+                system_extra=THINK_SHORT if instructed else "",
             )
             msg_env.reward_fn = _no_reward  # graded in compute_group_rewards instead
             envs.append(env)
@@ -70,7 +79,7 @@ class CPEnvGroupBuilder(EnvGroupBuilder):
         self, trajectory_group: list[Trajectory], env_group: Sequence[Env]
     ) -> list[tuple[float, Metrics]]:
         out = []
-        for env in env_group:
+        for i, env in enumerate(env_group):
             msg_env = env.message_env
             tools = msg_env.cp_tools
             g = await grade(self.problem, tools.last_compiled_code, self.score_mode)
@@ -89,6 +98,8 @@ class CPEnvGroupBuilder(EnvGroupBuilder):
                 "n_submissions": float(tools.n_submissions),
                 "n_runs": float(tools.n_runs),
                 "turn_bonus": bonus,
+                "instructed": float(self._instructed[i]) if i < len(getattr(self, "_instructed", [])) else 0.0,
+                "instruct_prob": self.instruct_prob,
             }))
         return out
 
@@ -129,6 +140,8 @@ class CPDatasetBuilder(RLDatasetBuilder):
     solutions_path: str | None = None  # if set, add 1 hinted rollout per held-out problem (tag "hinted")
     hint_min: float = 0.2
     hint_max: float = 0.8
+    think_short_p0: float = 1.0  # initial probability of the think-short instruction per training rollout
+    think_short_anneal_steps: int = 6  # linearly decays to 0 by this step (0 disables the instruction)
 
     def _builders(self, problems: list[dict], group_size: int, renderer_name: str, tag: str = "train",
                   hints: list[str] | None = None) -> list[CPEnvGroupBuilder]:
@@ -155,7 +168,13 @@ class CPDatasetBuilder(RLDatasetBuilder):
             ep = problems[:]
             rng.shuffle(ep)
             order += ep
-        train = CPDataset(self._builders(order, self.group_size, renderer_name), self.batch_size)
+        builders = self._builders(order, self.group_size, renderer_name)
+        for i, b in enumerate(builders):
+            step = i // self.batch_size
+            b.seed = self.seed * 100_003 + i
+            if self.think_short_anneal_steps > 0:
+                b.instruct_prob = max(0.0, self.think_short_p0 * (1 - step / self.think_short_anneal_steps))
+        train = CPDataset(builders, self.batch_size)
         test = None
         if self.eval_problems_path:
             ev = load(self.eval_problems_path)

@@ -97,7 +97,7 @@ async def _modal_call(code: str, spec: dict | None) -> dict:
     global _MODAL_SEM
     from harness.modal_backend import remote_execute
     if _MODAL_SEM is None:
-        _MODAL_SEM = asyncio.Semaphore(int(os.environ.get("MODAL_PARALLEL", 96)))
+        _MODAL_SEM = asyncio.Semaphore(int(os.environ.get("MODAL_PARALLEL", 100)))
     err = None
     for attempt in range(3):
         try:
@@ -189,6 +189,29 @@ async def run_tests(binary: str, tests: list[tuple[Path, Path]], time_limit: flo
             "checker": _to_container(checker) if checker else None, "time_limit": time_limit,
             "mem_bytes": mem_bytes, "stop_on_fail": stop_on_fail, "keep_stdout": keep_stdout}
     return await _run_spec(spec, len(tests))
+
+
+async def run_tests_inline(binary: str, pairs: list[tuple[str, str]], time_limit: float, mem_bytes: int = DEFAULT_MEM,
+                           checker: Path | None = None, stop_on_fail: bool = False,
+                           keep_stdout: bool = False) -> list[RunResult]:
+    """Grade on (input_text, expected_text) pairs that are not on disk/volume (e.g. sample tests)."""
+    if binary.startswith("modal:"):
+        spec = {"binary": binary, "inline_tests": [list(p) for p in pairs], "time_limit": time_limit,
+                "mem_bytes": mem_bytes, "checker": _to_container(checker) if checker else None,
+                "stop_on_fail": stop_on_fail, "keep_stdout": keep_stdout}
+        return await _run_spec(spec, len(pairs))
+    d = tests_dir() / "_inline" / uuid.uuid4().hex[:12]
+    d.mkdir(parents=True, exist_ok=True)
+    files = []
+    for i, (inp, exp) in enumerate(pairs):
+        (d / f"{i}.in").write_text(inp)
+        (d / f"{i}.out").write_text(exp)
+        files.append((d / f"{i}.in", d / f"{i}.out"))
+    try:
+        return await run_tests(binary, files, time_limit, mem_bytes, checker=checker,
+                               stop_on_fail=stop_on_fail, keep_stdout=keep_stdout)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 def tests_dir() -> Path:

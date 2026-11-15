@@ -941,3 +941,125 @@ def test_big_price_fold_wins_over_oversize_for_a_junk_raise(exploits):
             "showdown": False, "shown": {}, "actions": acts}
     v = judge(_xdb([hand], nseats=4), "m_x", 1, seat=3, action_index=1)
     assert v["rule"] == "big_price_fold" and v["preferred"] == "fold"
+
+
+# ---- pad_read: the raiser's observable profile from earlier hands of the same match; OFF unless named ----
+
+def _hist(n, raiser_actions, cards=None, we=None, stack=200):
+    """Hand n, 4 seats. `raiser_actions` are seat-3 actions; `we` is an optional (seat, action, amount) for seat 0."""
+    acts = list(raiser_actions)
+    players = [{"seat": s, "hole_cards": (cards if s == 0 and cards else ["2c", "3d"]), "starting_stack": stack}
+               for s in range(4)]
+    if we:
+        seat, action, amount = we
+        to_call = acts[-1]["amount"] if acts else 2
+        change = 0 if action == "fold" else -(amount or to_call)
+        after = stack + change if not (amount and amount >= stack) else 0
+        acts.append(_act(seat, action, amount, 3 + (acts[-1]["amount"] if acts else 0), to_call, change, after))
+    return {"hand_number": n, "button_seat": 0, "blinds": {"1": 1, "2": 2}, "players": players, "board": [],
+            "showdown": False, "shown": {}, "actions": acts}
+
+
+def _r_fold(): return [_act(3, "fold", None, 3, 2, 0, 200)]
+def _r_call(): return [_act(3, "call", None, 3, 2, -2, 198)]
+def _r_big(amount=40): return [_raise_act(3, amount)]
+
+
+def _pad_db(history, cards, action, price=60):
+    """`history`: raiser actions for hands 1..k; our decision is hand k+1, facing a raise to `price` from seat 3."""
+    hands = [_hist(i + 1, h) for i, h in enumerate(history)]
+    hands.append(_hist(len(history) + 1, _r_big(price), cards=cards, we=(0, action, None)))
+    return _xdb(hands, nseats=4), len(history) + 1
+
+
+def _pad_judge(history, cards, action, price=60):
+    con, n = _pad_db(history, cards, action, price)
+    return judge(con, "m_x", n, seat=0, action_index=0)
+
+
+WIDE = [_r_big(), _r_fold(), _r_big(), _r_fold(), _r_big(), _r_fold(), _r_fold(), _r_fold()]
+TIGHT = [_r_fold()] * 9 + [_r_call()]
+
+
+def test_pad_read_is_off_by_default():
+    assert _pad_judge(WIDE, ["7h", "7d"], "fold")["rule"] != "pad_read"
+
+
+def test_pad_read_wide_aggressor_prefers_call_with_the_widened_set(exploits):
+    exploits("pad_read")
+    for cards in (["7h", "7d"], ["Ah", "Th"], ["Ah", "Jd"], ["Kh", "Qh"]):
+        v = _pad_judge(WIDE, cards, "fold")
+        assert v["rule"] == "pad_read" and v["preferred"] == "call" and v["agree"] is False, cards
+    for cards in (["6h", "6d"], ["Ah", "Td"], ["Kh", "Qd"], ["9h", "8h"]):
+        assert _pad_judge(WIDE, cards, "fold")["rule"] != "pad_read", cards
+
+
+def test_pad_read_wide_needs_six_hands_and_three_big_raises_in_the_last_eight(exploits):
+    exploits("pad_read")
+    assert _pad_judge(WIDE[:5], ["7h", "7d"], "fold")["rule"] != "pad_read"  # only 5 hands seen
+    two_big = [_r_big(), _r_fold(), _r_big(), _r_fold(), _r_fold(), _r_fold(), _r_fold(), _r_fold()]
+    assert _pad_judge(two_big, ["7h", "7d"], "fold")["rule"] != "pad_read"
+    # big raises older than the last 8 hands do not count
+    assert _pad_judge([_r_big()] * 3 + [_r_fold()] * 8, ["7h", "7d"], "fold")["rule"] != "pad_read"
+    assert _pad_judge([_r_fold()] * 3 + [_r_big()] * 3 + [_r_fold()] * 5, ["7h", "7d"], "fold")["rule"] == "pad_read"
+
+
+def test_pad_read_shove_counts_as_big_and_small_raises_do_not(exploits):
+    exploits("pad_read")
+    shoves = [_r_big(200), _r_fold(), _r_big(200), _r_fold(), _r_big(200), _r_fold()]
+    assert _pad_judge(shoves, ["7h", "7d"], "fold", price=60)["preferred"] == "call"
+    small = [_r_big(10), _r_fold(), _r_big(10), _r_fold(), _r_big(10), _r_fold()]
+    assert _pad_judge(small, ["7h", "7d"], "fold")["rule"] != "pad_read"
+
+
+def test_pad_read_wide_respects_the_45_percent_price_cap(exploits):
+    exploits("pad_read")
+    assert _pad_judge(WIDE, ["7h", "7d"], "fold", price=90)["rule"] == "pad_read"      # exactly 45%
+    assert _pad_judge(WIDE, ["7h", "7d"], "fold", price=100)["rule"] != "pad_read"     # 50%
+
+
+def test_pad_read_does_not_force_folds_or_second_guess_calls_in_the_widened_set(exploits):
+    exploits("pad_read")
+    assert _pad_judge(WIDE, ["7h", "7d"], "call")["rule"] != "pad_read"
+    assert _pad_judge(WIDE, ["9h", "8h"], "call")["rule"] != "pad_read"
+
+
+def test_pad_read_tight_raiser_narrows_the_range(exploits):
+    exploits("pad_read")
+    for cards in (["Th", "Td"], ["Ah", "Qs"], ["Ah", "Kd"], ["Jh", "Jd"]):
+        v = _pad_judge(TIGHT, cards, "call")
+        assert v["rule"] == "pad_read" and v["preferred"] == "fold" and v["agree"] is False, cards
+    for cards in (["Qh", "Qd"], ["Ah", "Ad"], ["Ah", "Kh"]):
+        assert _pad_judge(TIGHT, cards, "call")["rule"] != "pad_read", cards
+    assert _pad_judge(TIGHT, ["Th", "Td"], "fold")["rule"] != "pad_read"
+    played_two = [_r_fold()] * 8 + [_r_call(), _r_call()]
+    assert _pad_judge(played_two, ["Th", "Td"], "call")["rule"] != "pad_read"
+    assert _pad_judge(TIGHT[-5:], ["Th", "Td"], "call")["rule"] != "pad_read"  # too few hands to call them tight
+
+
+def test_pad_read_ignores_small_raises_and_uses_only_earlier_hands(exploits):
+    exploits("pad_read")
+    assert _pad_judge(WIDE, ["7h", "7d"], "fold", price=20)["rule"] != "pad_read"  # not over 12 BB
+    # the current hand's own big raise must not count toward the profile
+    only_now = [_r_fold()] * 5 + [_r_big(), _r_big()]
+    con, n = _pad_db(only_now[:5] + [_r_big(), _r_big()], ["7h", "7d"], "fold")
+    assert judge(con, "m_x", n, seat=0, action_index=0)["rule"] != "pad_read"
+
+
+def test_pad_read_runs_before_big_price_fold(exploits):
+    exploits("pad_read", "big_price_fold")
+    v = _pad_judge(WIDE, ["7h", "7d"], "fold")
+    assert v["rule"] == "pad_read"
+    v = _pad_judge(TIGHT, ["Th", "Td"], "call")
+    assert v["rule"] == "pad_read" and v["preferred"] == "fold"
+    # no profile: big_price_fold still applies
+    assert _pad_judge([], ["7h", "2d"], "call")["rule"] == "big_price_fold"
+
+
+def test_pad_read_correction_text_and_args():
+    from poker.sft.make_records import _correction_args, correction_reasoning
+
+    call = {"rule": "pad_read", "preferred": "call", "agree": False}
+    fold = {"rule": "pad_read", "preferred": "fold", "agree": False}
+    assert "Call" in correction_reasoning(call, "77") and "Fold" in correction_reasoning(fold, "TT")
+    assert _correction_args(call, {"messages": []}) == {"action": "call"}

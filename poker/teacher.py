@@ -559,6 +559,8 @@ def judge(con, match_id: str, hand: int, seat: int, action_index: int) -> dict:
     raises = [r for r in before if r["street"] == "preflop" and r["action"] in ("raise", "bet")]
     stack0 = row["stack_after"] - (row["chip_change"] or 0)
     # v6 rules first: a junk hand facing a big price is a fold, not a smaller raise (oversize).
+    if "pad_read" in EXPLOITS and (v := _pad_read(con, row, before, raises, stack0, verdict, match_id, hand)):
+        return v
     if "big_price_fold" in EXPLOITS and (v := _big_price_fold(row, stack0, verdict)):
         return v
     if "raise_first_in" in EXPLOITS and (v := _raise_first_in(row, before, raises, verdict)):
@@ -756,6 +758,58 @@ def _big_price_fold(row, stack0, verdict) -> dict | None:
     if row["hand_code"] in (HUGE_PRICE_CONTINUE if huge else BIG_PRICE_CONTINUE):
         return None
     return verdict | {"rule": "big_price_fold", "preferred": "fold", "agree": False}
+
+
+# ---- rule `pad_read`: continue range scaled by the raiser's observable profile (what a teacher pad would hold) ----
+PAD_BIG_CHIPS = 24            # 12 BB: a raise above this, or any shove, is "big"
+PAD_WIDE_RANGE = "77+ ATs+ AJo+ KQs"
+PAD_TIGHT_RANGE = "QQ+ AKs"
+PAD_WIDE_PRICE_FRAC = 0.45
+PAD_WIDE_WINDOW, PAD_WIDE_MIN_HANDS, PAD_WIDE_MIN_BIG = 8, 6, 3
+PAD_TIGHT_WINDOW, PAD_TIGHT_MIN_HANDS, PAD_TIGHT_MAX_PLAYED = 10, 8, 1
+
+
+def raiser_profile(con, match_id: str, seat: int, before_hand: int) -> dict:
+    """Preflop facts about `seat` from hands of this match below `before_hand`, oldest first, as a pad would list them:
+    per-hand (vpip, raised, big) flags plus the totals. Never reads other matches or the current hand."""
+    per_hand: dict[int, list[bool]] = {}
+    for r in con.execute("SELECT hand_number, action, amount, stack_after FROM actions WHERE match_id=? AND seat=? "
+                         "AND street='preflop' AND hand_number<? ORDER BY hand_number, idx", (match_id, seat, before_hand)):
+        flags = per_hand.setdefault(r["hand_number"], [False, False, False])
+        aggressive = r["action"] in ("raise", "bet")
+        flags[0] |= aggressive or r["action"] == "call"
+        flags[1] |= aggressive
+        flags[2] |= aggressive and (r["stack_after"] == 0 or (r["amount"] or 0) > PAD_BIG_CHIPS)
+    hands = [per_hand[h] for h in sorted(per_hand)]
+    return {"hands": len(hands), "vpip": sum(h[0] for h in hands), "raises": sum(h[1] for h in hands),
+            "big": sum(h[2] for h in hands), "flags": hands}
+
+
+def _pad_read(con, row, before, raises, stack0, verdict, match_id, hand) -> dict | None:
+    """Rule `pad_read`: preflop, facing an all-in or a raise over 12 BB, we fold or call. Against a raiser who
+    shoved or raised big in 3+ of their last 8 hands (6+ observed), calls with 77+ ATs+ AJo+ KQs are right at a price of
+    at most 45% of our stack; against one who played at most 1 of their last 10 hands (8+ observed), only QQ+ AKs
+    should call."""
+    to_call = row["to_call"] or 0
+    if row["street"] != "preflop" or to_call <= 0 or row["action"] not in ("call", "fold") or not raises:
+        return None
+    if not (row["facing_allin"] or to_call > PAD_BIG_CHIPS):
+        return None
+    raiser = raises[-1]["seat"]
+    if raiser == row["seat"]:
+        return None
+    profile = raiser_profile(con, match_id, raiser, hand)
+    flags, code = profile["flags"], row["hand_code"]
+    last8, last10 = flags[-PAD_WIDE_WINDOW:], flags[-PAD_TIGHT_WINDOW:]
+    stats = {k: profile[k] for k in ("hands", "vpip", "raises", "big")}
+    if (len(flags) >= PAD_WIDE_MIN_HANDS and sum(h[2] for h in last8) >= PAD_WIDE_MIN_BIG
+            and row["action"] == "fold" and stack0 and to_call <= PAD_WIDE_PRICE_FRAC * stack0
+            and in_range(code, PAD_WIDE_RANGE)):
+        return verdict | {"rule": "pad_read", "preferred": "call", "agree": False, "raiser": raiser, "profile": stats}
+    if (len(flags) >= PAD_TIGHT_MIN_HANDS and sum(h[0] for h in last10) <= PAD_TIGHT_MAX_PLAYED
+            and row["action"] == "call" and not in_range(code, PAD_TIGHT_RANGE)):
+        return verdict | {"rule": "pad_read", "preferred": "fold", "agree": False, "raiser": raiser, "profile": stats}
+    return None
 
 
 def _raise_first_in(row, before, raises, verdict) -> dict | None:

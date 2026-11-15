@@ -1,0 +1,44 @@
+[
+  {
+    "file": "postflop_10k_test_set_game_scenario_information.csv",
+    "bytes": 1667973,
+    "sha256": "cfa73be8948c9927e6f3a7d73c26dd23160d04bb9cc9691ff6408c04cb4178a2",
+    "source": "https://huggingface.co/datasets/RZ412/PokerBench/resolve/main/postflop_10k_test_set_game_scenario_information.csv"
+  },
+  {
+    "file": "postflop_10k_test_set_prompt_and_label.json",
+    "bytes": 11218970,
+    "sha256": "ba4fdbe4dbd0efa1f33b1a5c73fb4e194da3504bcb1a83e68d26392cd27f348c",
+    "source": "https://huggingface.co/datasets/RZ412/PokerBench/resolve/main/postflop_10k_test_set_prompt_and_label.json"
+  },
+  {
+    "file": "postflop_500k_train_set_game_scenario_information.csv",
+    "bytes": 84093294,
+    "sha256": "a26f166b6cfbeb4cec5ab497016a1efaae058cd7a955ab0089603af2efb0c0b3",
+    "source": "https://huggingface.co/datasets/RZ412/PokerBench/resolve/main/postflop_500k_train_set_game_scenario_information.csv"
+  },
+  {
+    "file": "preflop_1k_test_set_game_scenario_information.csv",
+    "bytes": 81300,
+    "sha256": "38710b92bbefbaa881c8b16e0d617152dc3606866ed9a88b3687b1194f2203e5",
+    "source": "https://huggingface.co/datasets/RZ412/PokerBench/resolve/main/preflop_1k_test_set_game_scenario_information.csv"
+  },
+  {
+    "file": "preflop_1k_test_set_prompt_and_label.json",
+    "bytes": 921464,
+    "sha256": "221027a6dace36d4ab13eb6c54431d4522f33c24cc9390b36eb31baf2eb825b4",
+    "source": "https://huggingface.co/datasets/RZ412/PokerBench/resolve/main/preflop_1k_test_set_prompt_and_label.json"
+  },
+  {
+    "file": "preflop_60k_train_set_game_scenario_information.csv",
+    "bytes": 5690393,
+    "sha256": "5786fe9b2e34b593cd68e9c426cfce1a0ca845d0c45a27e8471ef3ad38657e69",
+    "source": "https://huggingface.co/datasets/RZ412/PokerBench/resolve/main/preflop_60k_train_set_game_scenario_information.csv"
+  },
+  {
+    "file": "README.md",
+    "bytes": 5175,
+    "sha256": "b638b58475dbc5322f18e095cb2f8162050e635de83c1ff439d03a355d07771a",
+    "source": "https://huggingface.co/datasets/RZ412/PokerBench/resolve/main/README.md"
+  }
+]

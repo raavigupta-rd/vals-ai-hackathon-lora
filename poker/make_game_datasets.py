@@ -37,7 +37,8 @@ def main() -> None:
         return
     client = Client(project=args.project)
     for name, tasks in built.items():
-        client.datasets.create(name, description=f"{len(tasks)} 6-max poker games, placement reward.", exist_ok=True)
+        # Refuse an existing name before adding anything: reruns must never silently double the tasks.
+        client.datasets.create(name, description=f"{len(tasks)} 6-max poker games, placement reward.", exist_ok=False)
         for start in range(0, len(tasks), 100):
             client.datasets.add_tasks(name, tasks=tasks[start : start + 100])
         print(f"{name}: {len(tasks)} tasks")

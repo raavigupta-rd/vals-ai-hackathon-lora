@@ -16,6 +16,12 @@ import build_dataset  # noqa: E402
 import train as opsd_train  # noqa: E402
 
 OPPONENT = Opponents("my-project/opponent")
+LEGAL_PROMPT = """Your seat: 0 (position 0; 0 = small blind)
+Street: preflop
+Your hole cards: As Kd
+Board: -
+Pot (including current bets): 3
+Legal actions: fold, call 1, raise to 4-200"""
 
 
 def test_splits_share_no_deal_and_cycle_every_seat() -> None:
@@ -46,7 +52,7 @@ def test_summary_pairs_by_deal() -> None:
 
 def test_opsd_builder_makes_one_hinted_task_per_clean_decision() -> None:
     system = Message(role="system", content="rules")
-    user = Message(role="user", content="state")
+    user = Message(role="user", content=LEGAL_PROMPT)
     good = [Reasoning(content="think"), FunctionCall(call_id="c1", name="submit_action", arguments='{"action":"fold"}')]
     bad = [Message(role="assistant", content="no tool call")]
 
@@ -56,13 +62,14 @@ def test_opsd_builder_makes_one_hinted_task_per_clean_decision() -> None:
             "name": "get_completion",
             "status": "OK",
             "start_time": start,
+            "end_time": start + 1,
             "input": dump([system, user]),
             "output": dump(reply),
             "tokens_out": 10,
         }
 
     tasks, stats = build_dataset.decision_tasks({"trace_id": "t", "spans": [span(1, good), span(2, bad)]}, "hint", 100)
-    assert stats == {"decisions": 2, "kept": 1, "cleanup": 0, "format": 1, "truncated": 0}
+    assert {k: stats[k] for k in ("decisions", "kept", "cleanup", "format", "truncated")} == {"decisions": 2, "kept": 1, "cleanup": 0, "format": 1, "truncated": 0}
     (task,) = tasks
     (selection,) = task.opsd_hint_selections
     assert len(task.input) == 4 and selection.rollout_prefix_len == 2
@@ -70,6 +77,27 @@ def test_opsd_builder_makes_one_hinted_task_per_clean_decision() -> None:
     assert [t["name"] for t in task.env_params["tools"]] == ["submit_action", "update_scratchpad"]
     assert set(task.env_params["tools"][0]["parameters"]["properties"]) == {"action", "amount", "say"}
     assert "hint" not in json.dumps([i.model_dump(mode="json") for i in task.input])  # only the teacher sees it
+
+
+def test_opsd_dynamic_hint_sees_prompt_only_and_preserves_base_reply() -> None:
+    prompt = [Message(role="system", content="rules"), Message(role="user", content=LEGAL_PROMPT)]
+    reply = [Reasoning(content="private sampled reasoning"),
+             FunctionCall(call_id="c", name="submit_action", arguments='{"action":"fold"}')]
+    seen = []
+
+    def make_hint(items):
+        seen.extend(items)
+        return "decision-specific teacher hint"
+
+    span = {"name": "get_completion", "status": "OK", "start_time": 0, "end_time": 1,
+            "input": json.dumps([i.model_dump(mode="json") for i in prompt]),
+            "output": json.dumps([i.model_dump(mode="json") for i in reply]), "tokens_out": 50}
+    (task,), stats = build_dataset.decision_tasks({"trace_id": "train-only", "spans": [span]}, make_hint, 5000)
+    assert seen == prompt
+    assert task.input == prompt + reply
+    assert task.opsd_hint_selections[0].hint == "decision-specific teacher hint"
+    assert stats["kept"] == 1
+    assert "decision-specific teacher hint" not in json.dumps([i.model_dump(mode="json") for i in task.input])
 
 
 def test_training_configs_send_only_explicit_settings() -> None:

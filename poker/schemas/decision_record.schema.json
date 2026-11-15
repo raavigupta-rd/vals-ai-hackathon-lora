@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["id", "source", "format", "state", "action", "reason", "meta", "solver_freqs"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "source": {"enum": ["teacher", "solver", "pokerbench", "phh", "trace"]},
+    "format": {
+      "type": "object", "required": ["players", "sb", "bb", "starting_stack"],
+      "properties": {
+        "players": {"const": 6}, "sb": {"const": 1}, "bb": {"const": 2},
+        "starting_stack": {"type": ["number", "null"], "exclusiveMinimum": 0}
+      }, "additionalProperties": false
+    },
+    "state": {
+      "type": "object",
+      "required": ["hand_index", "street", "hole", "board", "seat", "position", "pot", "to_call", "stacks", "effective_stack", "legal", "history"],
+      "properties": {
+        "hand_index": {"type": ["integer", "null"], "minimum": 0},
+        "street": {"enum": ["preflop", "flop", "turn", "river"]},
+        "hole": {"type": "array", "items": {"$ref": "#/$defs/card"}, "minItems": 2, "maxItems": 2, "uniqueItems": true},
+        "board": {"type": "array", "items": {"$ref": "#/$defs/card"}, "maxItems": 5, "uniqueItems": true},
+        "seat": {"type": ["integer", "null"], "minimum": 0, "maximum": 5},
+        "position": {"type": "string"},
+        "pot": {"type": "number", "minimum": 0},
+        "to_call": {"type": ["number", "null"], "minimum": 0},
+        "stacks": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"type": ["number", "null"], "minimum": 0}},
+        "effective_stack": {"type": ["number", "null"], "minimum": 0},
+        "legal": {
+          "type": "object", "required": ["fold", "check", "call", "raise_min", "raise_max", "raise_type"],
+          "properties": {
+            "fold": {"type": ["boolean", "null"]}, "check": {"type": ["boolean", "null"]},
+            "call": {"type": ["number", "null"], "minimum": 0},
+            "raise_min": {"type": ["number", "null"], "minimum": 0},
+            "raise_max": {"type": ["number", "null"], "minimum": 0},
+            "raise_type": {"enum": ["bet", "raise", null]}
+          }, "additionalProperties": false
+        },
+        "history": {"type": "array", "items": {"type": "object", "required": ["street", "seat", "action", "to"], "properties": {
+          "street": {"enum": ["preflop", "flop", "turn", "river"]},
+          "seat": {"type": "integer", "minimum": 0, "maximum": 5},
+          "action": {"enum": ["fold", "check", "call", "bet", "raise"]},
+          "to": {"type": ["number", "null"], "minimum": 0}
+        }, "additionalProperties": false}}
+      }, "additionalProperties": false
+    },
+    "action": {"type": "object", "required": ["type", "to"], "properties": {
+      "type": {"enum": ["fold", "check", "call", "bet", "raise"]}, "to": {"type": ["number", "null"], "minimum": 0}
+    }, "additionalProperties": false},
+    "reason": {"type": "string", "maxLength": 400},
+    "meta": {"type": "object", "required": ["hand_id", "split", "engine_verified"], "properties": {
+      "hand_id": {"type": "string", "minLength": 1}, "split": {"enum": ["train", "test"]},
+      "engine_verified": {"type": "boolean"}, "equity": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
+    }},
+    "solver_freqs": {"type": ["object", "null"]}
+  },
+  "$defs": {"card": {"type": "string", "pattern": "^[2-9TJQKA][cdhs]$"}}
+}

@@ -43,10 +43,18 @@ read, so nothing here rewards or exercises scratchpad use; how to train that is 
 from __future__ import annotations
 
 import json
+import hashlib
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .game import placements
+
+# Captured once when the process imports the grader. Editing files on disk does not change this value in a
+# running process; report it in health and scores so future runs can attest the code that actually graded them.
+GRADER_REVISION = hashlib.sha256(
+    (Path(__file__).read_text(encoding="utf-8") + "\0" + Path(__file__).with_name("game.py").read_text(encoding="utf-8")).encode()
+).hexdigest()
 
 REWARD_OFFSET = 6.0  # shifts the clipped reward [-5, +5] to [1, 11]
 REWARD_FLOOR, REWARD_CEILING = -5.0, 5.0
@@ -80,6 +88,7 @@ class SeatResult:
     hands: int
     place: int  # best final place among the policy seats, 1 = first (event ranking)
     seats: int  # seats at the table
+    busted: bool = False
 
 
 def check_grader_params(grader_params: dict[str, Any] | None) -> dict[str, Any]:
@@ -122,6 +131,7 @@ def seat_result(log: dict[str, Any], policy_seats: list[str]) -> SeatResult:
         hands=len(log["hands"]),
         place=min(places[seat] for seat in policy),
         seats=len(places),
+        busted=any(log["final_stacks"][seat] == 0 for seat in policy),
     )
 
 
@@ -138,7 +148,7 @@ def hand_reward(result: SeatResult, params: dict[str, Any]) -> float:
 
 def failure_score(reason: str) -> dict[str, Any]:
     """The reply for a rollout that failed before producing a log (AC2 reported it failed or truncated)."""
-    return {"score": FAILURE_SCORE, "reasoning": reason, "artifacts": {"failure": True}}
+    return {"score": FAILURE_SCORE, "reasoning": reason, "artifacts": {"failure": True, "grader_revision": GRADER_REVISION}}
 
 
 def grade_log(
@@ -164,6 +174,8 @@ def grade_log(
             "folded": result.folded,
             "hands": result.hands,
             "place": result.place,
+            "busted": result.busted,
+            "grader_revision": GRADER_REVISION,
         },
     }
 

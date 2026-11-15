@@ -1,0 +1,62 @@
+{
+  "counts": {
+    "input": 563200,
+    "drop_test_overlap": 527827,
+    "drop_unverified": 2004,
+    "drop_fractional_event_chips": 8586,
+    "drop_duplicate": 19,
+    "train": 13565,
+    "drop_fold_cap": 9590,
+    "val": 1609
+  },
+  "distributions": {
+    "train": {
+      "source": {
+        "pokerbench": 13565
+      },
+      "street": {
+        "preflop": 12993,
+        "flop": 125,
+        "turn": 447
+      },
+      "action": {
+        "fold": 3512,
+        "call": 9491,
+        "raise": 501,
+        "check": 50,
+        "bet": 11
+      },
+      "stack_bb": {
+        "<=100": 9049,
+        "<=20": 4361,
+        "<=50": 155
+      }
+    },
+    "val": {
+      "source": {
+        "pokerbench": 1609
+      },
+      "street": {
+        "preflop": 1609
+      },
+      "action": {
+        "fold": 402,
+        "call": 1197,
+        "raise": 10
+      },
+      "stack_bb": {
+        "<=100": 982,
+        "<=20": 627
+      }
+    }
+  },
+  "val_fraction": 0.1,
+  "preflop_fold_cap": 0.25,
+  "inputs": [
+    "out\\raw\\pokerbench.jsonl"
+  ],
+  "held_out": [
+    "out\\eval\\pokerbench.jsonl"
+  ],
+  "note": "PokerBench hand IDs are conservative scenario families; all test families are excluded."
+}

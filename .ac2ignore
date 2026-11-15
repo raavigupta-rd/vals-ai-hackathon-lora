@@ -18,3 +18,7 @@ opsd/
 tests/
 traces/
 videos/
+poker/
+data/
+out/
+handoff/

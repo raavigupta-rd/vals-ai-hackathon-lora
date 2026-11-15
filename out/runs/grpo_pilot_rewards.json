@@ -1,0 +1,24 @@
+{
+  "train_id": "train_b2dda65e96c4",
+  "scored_rollouts": 4,
+  "zero_reward_rollouts": 0,
+  "zero_reward_fraction": 0.0,
+  "complete_groups": 1,
+  "incomplete_groups": 0,
+  "no_variance_groups": 1,
+  "no_variance_fraction": 1.0,
+  "all_zero_groups": 0,
+  "groups": [
+    {
+      "step": 0,
+      "task_id": "tsk_aac529695316",
+      "scores": [
+        7.5,
+        7.5,
+        7.5,
+        7.5
+      ],
+      "complete": true
+    }
+  ]
+}

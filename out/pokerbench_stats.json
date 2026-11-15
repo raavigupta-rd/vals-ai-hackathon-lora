@@ -1,0 +1,15 @@
+{
+  "input": 574200,
+  "unverified:source pot differs from engine replay": 330195,
+  "test": 11000,
+  "engine_verified": 168048,
+  "unverified:missing non-preflop action": 70228,
+  "unverified:raise not legal; applied bet": 3109,
+  "unverified:raise to 154.0 clamped to 155.0": 1371,
+  "unverified:solver label illegal under official engine": 514,
+  "unverified:raise to 146.0 clamped to 147.4": 191,
+  "unverified:raise to 162.0 clamped to 163.0": 168,
+  "unverified:raise to 146.0 clamped to 147.0": 305,
+  "train": 563200,
+  "unverified:raise to 66.0 clamped to 67.0": 71
+}

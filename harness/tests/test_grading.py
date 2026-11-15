@@ -58,6 +58,11 @@ async def test_graded_table_scores_and_replays_are_idempotent(tmp_path: Path) ->
     assert math.isfinite(reply["score"]) and replay_score.json() == reply
     # Every seat is a policy seat in TASK, so their chips net to zero.
     assert reply["score"] == REWARD_OFFSET and reply["artifacts"]["ev_method"] == "realized"
+    assert len(reply["artifacts"]["grader_revision"]) == 64
+    assert isinstance(reply["artifacts"]["busted"], bool)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://h") as client:
+        health = (await client.get("/health")).json()
+    assert health["grader_revision"] == reply["artifacts"]["grader_revision"]
     assert status["annotations"] == {"score": REWARD_OFFSET}
 
 

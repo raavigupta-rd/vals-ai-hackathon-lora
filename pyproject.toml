@@ -12,7 +12,7 @@ requires-python = ">=3.12"
 dependencies = []
 
 [dependency-groups]
-dev = ["ac2>=0.3.97", "pytest>=8.0.0"]
+dev = ["ac2>=0.3.97", "pytest>=8.0.0", "jsonschema>=4.23", "pokerkit>=0.7.7"]
 
 [tool.uv]
 package = true

@@ -1,0 +1,388 @@
+{
+  "checked": 20,
+  "matched": 20,
+  "fields": [
+    "hole",
+    "board",
+    "position",
+    "pot",
+    "action"
+  ],
+  "note": "JSON and CSV rows are shuffled independently; match visible state and label by content.",
+  "checks": [
+    {
+      "id": "pb-preflop_1k_test_set-864",
+      "matched_original_prompt": true,
+      "street": "preflop",
+      "hole": [
+        "5h",
+        "3h"
+      ],
+      "board": [],
+      "pot": 2.0,
+      "position": "BB",
+      "action": {
+        "type": "check",
+        "to": null
+      }
+    },
+    {
+      "id": "pb-preflop_1k_test_set-394",
+      "matched_original_prompt": true,
+      "street": "preflop",
+      "hole": [
+        "Ah",
+        "Kc"
+      ],
+      "board": [],
+      "pot": 211.0,
+      "position": "UTG",
+      "action": {
+        "type": "call",
+        "to": null
+      }
+    },
+    {
+      "id": "pb-preflop_1k_test_set-776",
+      "matched_original_prompt": true,
+      "street": "preflop",
+      "hole": [
+        "9d",
+        "9c"
+      ],
+      "board": [],
+      "pot": 261.0,
+      "position": "CO",
+      "action": {
+        "type": "fold",
+        "to": null
+      }
+    },
+    {
+      "id": "pb-preflop_1k_test_set-911",
+      "matched_original_prompt": true,
+      "street": "preflop",
+      "hole": [
+        "As",
+        "8s"
+      ],
+      "board": [],
+      "pot": 3.0,
+      "position": "CO",
+      "action": {
+        "type": "raise",
+        "to": 4.6
+      }
+    },
+    {
+      "id": "pb-preflop_1k_test_set-430",
+      "matched_original_prompt": true,
+      "street": "preflop",
+      "hole": [
+        "Ts",
+        "4s"
+      ],
+      "board": [],
+      "pot": 207.6,
+      "position": "SB",
+      "action": {
+        "type": "fold",
+        "to": null
+      }
+    },
+    {
+      "id": "pb-preflop_1k_test_set-41",
+      "matched_original_prompt": true,
+      "street": "preflop",
+      "hole": [
+        "As",
+        "Ac"
+      ],
+      "board": [],
+      "pot": 54.0,
+      "position": "CO",
+      "action": {
+        "type": "raise",
+        "to": 68.8
+      }
+    },
+    {
+      "id": "pb-preflop_1k_test_set-265",
+      "matched_original_prompt": true,
+      "street": "preflop",
+      "hole": [
+        "Qc",
+        "5c"
+      ],
+      "board": [],
+      "pot": 2.0,
+      "position": "BB",
+      "action": {
+        "type": "check",
+        "to": null
+      }
+    },
+    {
+      "id": "pb-preflop_1k_test_set-988",
+      "matched_original_prompt": true,
+      "street": "preflop",
+      "hole": [
+        "Kc",
+        "Tc"
+      ],
+      "board": [],
+      "pot": 266.0,
+      "position": "SB",
+      "action": {
+        "type": "fold",
+        "to": null
+      }
+    },
+    {
+      "id": "pb-preflop_1k_test_set-523",
+      "matched_original_prompt": true,
+      "street": "preflop",
+      "hole": [
+        "As",
+        "Jd"
+      ],
+      "board": [],
+      "pot": 292.4,
+      "position": "BB",
+      "action": {
+        "type": "fold",
+        "to": null
+      }
+    },
+    {
+      "id": "pb-preflop_1k_test_set-497",
+      "matched_original_prompt": true,
+      "street": "preflop",
+      "hole": [
+        "Ad",
+        "5d"
+      ],
+      "board": [],
+      "pot": 213.0,
+      "position": "BTN",
+      "action": {
+        "type": "fold",
+        "to": null
+      }
+    },
+    {
+      "id": "pb-postflop_10k_test_set-6634",
+      "matched_original_prompt": true,
+      "street": "turn",
+      "hole": [
+        "Ac",
+        "Jc"
+      ],
+      "board": [
+        "Qc",
+        "Ad",
+        "Kh",
+        "Ts"
+      ],
+      "pot": 172.0,
+      "position": "CO",
+      "action": {
+        "type": "raise",
+        "to": 180.0
+      }
+    },
+    {
+      "id": "pb-postflop_10k_test_set-4969",
+      "matched_original_prompt": true,
+      "street": "river",
+      "hole": [
+        "Ad",
+        "Ts"
+      ],
+      "board": [
+        "Th",
+        "3s",
+        "2d",
+        "Ac",
+        "Qc"
+      ],
+      "pot": 44.0,
+      "position": "BB",
+      "action": {
+        "type": "bet",
+        "to": 34.0
+      }
+    },
+    {
+      "id": "pb-postflop_10k_test_set-7808",
+      "matched_original_prompt": true,
+      "street": "turn",
+      "hole": [
+        "Td",
+        "6d"
+      ],
+      "board": [
+        "8h",
+        "8c",
+        "Tc",
+        "As"
+      ],
+      "pot": 272.0,
+      "position": "BTN",
+      "action": {
+        "type": "fold",
+        "to": null
+      }
+    },
+    {
+      "id": "pb-postflop_10k_test_set-5866",
+      "matched_original_prompt": true,
+      "street": "river",
+      "hole": [
+        "Ac",
+        "9s"
+      ],
+      "board": [
+        "Ks",
+        "7h",
+        "2d",
+        "Jc",
+        "7c"
+      ],
+      "pot": 138.0,
+      "position": "BTN",
+      "action": {
+        "type": "check",
+        "to": null
+      }
+    },
+    {
+      "id": "pb-postflop_10k_test_set-9558",
+      "matched_original_prompt": true,
+      "street": "river",
+      "hole": [
+        "Ks",
+        "5s"
+      ],
+      "board": [
+        "Ad",
+        "8d",
+        "3d",
+        "Kh",
+        "Jc"
+      ],
+      "pot": 20.0,
+      "position": "HJ",
+      "action": {
+        "type": "check",
+        "to": null
+      }
+    },
+    {
+      "id": "pb-postflop_10k_test_set-3578",
+      "matched_original_prompt": true,
+      "street": "turn",
+      "hole": [
+        "Ac",
+        "7s"
+      ],
+      "board": [
+        "Qc",
+        "Ad",
+        "Kh",
+        "Ts"
+      ],
+      "pot": 76.0,
+      "position": "BB",
+      "action": {
+        "type": "check",
+        "to": null
+      }
+    },
+    {
+      "id": "pb-postflop_10k_test_set-8268",
+      "matched_original_prompt": true,
+      "street": "turn",
+      "hole": [
+        "Th",
+        "8h"
+      ],
+      "board": [
+        "6s",
+        "8d",
+        "7c",
+        "Js"
+      ],
+      "pot": 76.0,
+      "position": "BB",
+      "action": {
+        "type": "call",
+        "to": null
+      }
+    },
+    {
+      "id": "pb-postflop_10k_test_set-2281",
+      "matched_original_prompt": true,
+      "street": "river",
+      "hole": [
+        "As",
+        "Kc"
+      ],
+      "board": [
+        "Qc",
+        "8c",
+        "Ac",
+        "Kh",
+        "Jh"
+      ],
+      "pot": 158.0,
+      "position": "HJ",
+      "action": {
+        "type": "check",
+        "to": null
+      }
+    },
+    {
+      "id": "pb-postflop_10k_test_set-4617",
+      "matched_original_prompt": true,
+      "street": "flop",
+      "hole": [
+        "Ah",
+        "Kd"
+      ],
+      "board": [
+        "Ac",
+        "Ks",
+        "7d"
+      ],
+      "pot": 58.0,
+      "position": "SB",
+      "action": {
+        "type": "raise",
+        "to": 32.0
+      }
+    },
+    {
+      "id": "pb-postflop_10k_test_set-2289",
+      "matched_original_prompt": true,
+      "street": "river",
+      "hole": [
+        "As",
+        "Ah"
+      ],
+      "board": [
+        "Ks",
+        "7h",
+        "2d",
+        "Jc",
+        "Qc"
+      ],
+      "pot": 108.0,
+      "position": "HJ",
+      "action": {
+        "type": "fold",
+        "to": null
+      }
+    }
+  ]
+}

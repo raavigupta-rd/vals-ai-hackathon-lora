@@ -1,18 +1,41 @@
 # Poker plan
 
 Vals Hackathon, poker track. Written Sat Nov 14, 1:45 PM, revised through the afternoon. Submissions close Sun
-Nov 15, 2 PM; the Official Tournament runs after that on every team's last submission.
+Nov 15, 2 PM PST (confirmed by the user); the Official Tournament runs after that on every team's last submission.
 
 This started as a data plan and now covers the whole event. Data work never stops: it feeds training the whole
 time. Most of the remaining time goes to the training loop.
+
+## Shared branch and strategy focus
+
+Both people now work on `poker`, per the user's consolidation request. `poker-a` and `poker-b` retain historical
+commits; they are no longer active work branches. Fetch and `git pull --ff-only origin poker` before editing,
+coordinate overlapping files and the single training slot, then commit and push completed work promptly.
+
+The new [strategy reference](README%20%282%29.md) prioritizes reliable legal decisions, replayable public
+trajectories, measured opponent weaknesses, competent preflop/bet sizing, and repeated held-out evaluation.
+Apply those priorities to the confirmed six-seat, 30-hand, final-placement event. Improve expected tournament
+results rather than chasing ladder noise, blind aggression, loose calls or survival at any cost. Keep a robust
+general fallback and select the best evaluated model, not automatically the newest checkpoint.
+
+Capture observable state, action, legal bounds, seed/seat, model/opponent versions, token use and outcomes with
+stable decision/hand/game IDs. Keep unrevealed cards and future information out of student observations. Use
+conditional opponent statistics with sample sizes and uncertainty; test sizing/table-talk hypotheses rather
+than assuming they work. Split evaluation by whole games/seeds and rotate seats. Never label actions good only
+because the hand won. These are the next data/scouting priorities while the current pilot and baselines run.
+
+The strategy document's SFT and on-policy/custom-logprob paths are conditional proposals. Our executable methods
+remain confirmed managed GRPO and data-only offline OPSD; do not assume SFT eligibility, custom losses,
+raw token-logprob access or one_step permission. `poker/CAPABILITIES.md` records the verified constraints.
+Selection by Sunday 12:30 PM, final check/submission target 1:15 PM, and cutoff 2 PM are all PST.
 
 ## Phases
 
 | Phase | What | Status |
 |---|---|---|
 | 1. Setup | Harness, connector, starter datasets, game datasets (`pokerbots-*-game`) | Done Sat 3 PM |
-| 2. Baseline | Smoke evals, `base` deployment, base evals, base in the arena | In progress |
-| 3. First training: decide fast | GRPO on single hands to cut token-cap failures (see "Finding: the cap" below) | Next |
+| 2. Baseline | Smoke evals, `base` deployment, separate held-out/train evals | Base smoke succeeded; held-out `eval_9e50f4198211`, train `eval_ce4924764f47` running |
+| 3. First training: decide fast | Bounded single-hand GRPO pilot | `train_b2dda65e96c4`, four steps, 4 x 4 attempts, no in-run eval; sole training slot reserved |
 | 4. Training loop | Placement-reward games, OPSD hints, simulated field. Train, eval against base, find leaks, repeat. | Sat night to Sun 12:30 PM |
 | 5. Final entry | Pick, check, submit by 1:15 PM (step 9f) | Sun |
 
@@ -20,25 +43,51 @@ time. Most of the remaining time goes to the training loop.
 
 In the first smoke games (Sat 3 PM), the house model (`ac-vals-model`) lost 18 of 68 decisions to invalid moves, and
 17 of those were replies cut off at the 5,000-token cap. Its reasoning tails show long placement math ("expected
-rank 3.0 to 3.5 if I fold...") that never reaches a `submit_action` call. Base Qwen has the same system prompt, so
-it likely does the same.
+rank 3.0 to 3.5 if I fold...") that never reaches a `submit_action` call. This is evidence about the house model,
+not the base model or the field. Base smoke later completed 8 policy decisions with zero cutoffs, median 620.5
+output tokens and maximum 865. Full base measurements remain pending; early successful tasks can be biased.
 
 - For us: the cheapest large gain is reaching a valid action in fewer tokens. The event has no time limit; only tokens matter.
-- For the field: entries built on base probably fail 20 to 30% of decisions the same way, and a forced check or fold gives up the pot. Aggression against them pays. B checks this in replays (step 8).
-- For training: house opponents check or fold about a quarter of the time for no reason. Training only against them can teach too much bluffing, which is another reason for the simulated field (9c).
+- For the field: measure each entry's failure rate rather than extrapolating 20–30% from the house smoke sample.
+- For training: flaky house opponents can teach too much bluffing. Compare poker results and format validity,
+  then validate against broader scripted/real opponents before advancing.
 
 ### Phase 3 plan: decide fast (owner: A for GRPO, B for OPSD)
 
 1. Measure base first on `pokerbots-eval`: cut-off rate, tokens per decision, BB per hand.
 2. GRPO on `pokerbots-train` (single hands). A cut-off already scores 0, so GRPO pushes toward replies that finish, with no new code. Single hands are short, so the signal comes fast.
 3. Watch `format_error_hands` and BB per hand at each in-run eval. Stop if BB per hand falls while errors fall.
-4. In parallel, B builds an OPSD set from base's decisions that finished under about 2,500 tokens, with a "think briefly: strength, position, price, then act" hint.
+4. In parallel, B builds an OPSD set from completed base-train tasks and decisions under 2,500 tokens. The first
+   reviewed snapshot is uploaded as `pokerbots-opsd-fast-20261114-pilot-v1` (24 decisions; 20 reviewed, including
+   seven incremental updates). This is a data-path pilot; broaden it as more train tasks complete. Do not run
+   OPSD concurrently with `train_b2dda65e96c4`.
 5. No length penalty in the reward yet. Add one only if cut-offs stay high after the first run.
 
 Targets: cut-off rate under 2%, median reply about 1,500 tokens, 99th percentile under 4,000, BB per hand not worse
 than base. The cleanup turn has its own 10,000-token cap; check that its updates finish too.
 
 ## Team and setup
+
+### Combined A/B review (after A commit `815c9bf`)
+
+- Local `poker-b` includes A's latest placement grader, game datasets and decide-fast plan, plus B's uncommitted
+  data/hint/scouting work. The combined implementation is now committed and pushed as `593a185` on `poker-b`.
+  Use `poker/run_ledger.json` for live run ownership and `poker/STATUS.md` for the latest execution results.
+- Combined checks: 23 root tests passed; 106 harness tests passed, one skipped. A connected harness and the
+  400/100/200 game datasets exist. At the live check, base smoke `eval_992f2c5ead5b` was running and no training
+  job existed. Recheck live state before launching work; do not infer completion from this snapshot.
+- Before game training, add explicit train-dataset selection to `rl/train.py` (its prefix convention cannot
+  address `pokerbots-train-game`), report final rank/game metrics in the scorer, and measure whole-game token
+  budgets, grading timeouts and zero-reward frequency. The 24,576-token default is for single hands.
+- The house model's token-cap finding is observed; equivalent base/field failure rates remain hypotheses until
+  measured. Per-decision error rates and failed-game rates are different metrics.
+- B has 13,565 clean training labels and 1,609 validation labels, plus a tested per-decision hint builder.
+  They are preflop-heavy; validation has no postflop records. Real base train traces and a reviewed hinted-data
+  upload remain outstanding. Teacher source and Pluribus conversion are still missing.
+- Use confirmed managed GRPO/offline OPSD. Platform SFT support does not establish team eligibility; one_step
+  OPSD and raw token-logprob/custom-loss access also require confirmation. See `poker/CAPABILITIES.md`.
+- Prioritize a measured baseline and a small decide-fast training pilot. Do not delay the first training/eval
+  cycle for optional teacher, solver or probe work. Full execution order and completion gates: `poker/HANDOFF.md`.
 
 Two people. Each step below names its owner as A or B.
 
@@ -49,7 +98,7 @@ Two people. Each step below names its owner as A or B.
 | Owns | `harness/`, `grading.py`, `rl/`, the arena entry | `poker/`, `opsd/`, opponent profiles, the probe log |
 
 Rules between us
-- Each person works on their own branch off `poker` (`poker-a`, `poker-b`) and merges back through a reviewed PR.
+- Both people work on shared `poker`; preserve local work, pull with `--ff-only`, and coordinate overlapping edits.
 - Only A submits to the arena, so the live entry is never a surprise. B asks A for probe windows.
 - Only one training job runs at a time. Agree in chat whose job is next before launching.
 - A restarts the harness only between runs, since a running run grades with whatever harness is up.

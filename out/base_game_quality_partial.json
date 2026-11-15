@@ -1,0 +1,328 @@
+{
+  "counts": {
+    "decisions": 330,
+    "cleanups": 181,
+    "decision_failures": 3,
+    "decision_illegal": 2,
+    "tasks": 32,
+    "tasks_with_failures": 4,
+    "completed_tasks": 0,
+    "completed_tasks_with_failures": 0,
+    "unreadable": 1,
+    "decision_cutoffs": 1,
+    "decision_format": 1
+  },
+  "decision_cutoff_rate": 0.0030303030303030303,
+  "decision_failure_rate": 0.00909090909090909,
+  "failed_task_rate": null,
+  "tokens": {
+    "decision_output": {
+      "count": 330,
+      "sum": 227728,
+      "median": 591.5,
+      "p99": 2570.1999999999935,
+      "max": 5000
+    },
+    "cleanup_output": {
+      "count": 181,
+      "sum": 173573,
+      "median": 747.0,
+      "p99": 2619.199999999998,
+      "max": 3504
+    },
+    "task_output": {
+      "count": 32,
+      "sum": 401301,
+      "median": 11954.0,
+      "p99": 19157.160000000003,
+      "max": 19766
+    },
+    "request_input": {
+      "count": 511,
+      "sum": 934892,
+      "median": 1774.0,
+      "p99": 2913.7999999999993,
+      "max": 3285
+    },
+    "task_all_request_tokens_upper_bound": {
+      "count": 32,
+      "sum": 1336193,
+      "median": 41796.0,
+      "p99": 57167.68,
+      "max": 57252
+    },
+    "completed_task_output": {
+      "count": 0,
+      "sum": 0,
+      "median": null,
+      "p99": null,
+      "max": null
+    },
+    "completed_task_all_request_tokens_upper_bound": {
+      "count": 0,
+      "sum": 0,
+      "median": null,
+      "p99": null,
+      "max": null
+    }
+  },
+  "tasks": [
+    {
+      "trace_id": "c32964bffe2fbdf2b3ebe2bc4c73dd53",
+      "output_tokens": 16172,
+      "all_request_tokens_upper_bound": 44542,
+      "export_bytes": 202317,
+      "has_failure": true,
+      "completed_task": false
+    },
+    {
+      "trace_id": "6501ee3dec79d7407e2fbb05bd4d214a",
+      "output_tokens": 11629,
+      "all_request_tokens_upper_bound": 43263,
+      "export_bytes": 217720,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "c7355399c72942d244614f5baac97053",
+      "output_tokens": 14854,
+      "all_request_tokens_upper_bound": 43680,
+      "export_bytes": 212285,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "c9107480cad6bdf546dafbc9ee5393b7",
+      "output_tokens": 8173,
+      "all_request_tokens_upper_bound": 29576,
+      "export_bytes": 135233,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "473f1205e5791889809223f67ea49c09",
+      "output_tokens": 11495,
+      "all_request_tokens_upper_bound": 41101,
+      "export_bytes": 204703,
+      "has_failure": true,
+      "completed_task": false
+    },
+    {
+      "trace_id": "c07f688fd1d66290876c7a8338ddbdaa",
+      "output_tokens": 11937,
+      "all_request_tokens_upper_bound": 38452,
+      "export_bytes": 207613,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "b5eae36be2595cc0e97c8bb2a971d938",
+      "output_tokens": 11194,
+      "all_request_tokens_upper_bound": 35923,
+      "export_bytes": 165946,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "3e571b7827f43c17baeea70edb0f2874",
+      "output_tokens": 16764,
+      "all_request_tokens_upper_bound": 48229,
+      "export_bytes": 261602,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "331bc3dd516d8ca54cbe3dfc4e56a429",
+      "output_tokens": 19766,
+      "all_request_tokens_upper_bound": 50944,
+      "export_bytes": 265539,
+      "has_failure": true,
+      "completed_task": false
+    },
+    {
+      "trace_id": "f91c8d5b1e47e5579d843fc5e90e4b43",
+      "output_tokens": 9331,
+      "all_request_tokens_upper_bound": 32647,
+      "export_bytes": 171546,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "2df3cef8414b23b39c1cad0a2ce86272",
+      "output_tokens": 11107,
+      "all_request_tokens_upper_bound": 34512,
+      "export_bytes": 164081,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "e899c8613018a621d30ae8eb1cafa062",
+      "output_tokens": 14370,
+      "all_request_tokens_upper_bound": 52547,
+      "export_bytes": 309109,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "4a180fa717a6693fd14d7ed18af7e18c",
+      "output_tokens": 11863,
+      "all_request_tokens_upper_bound": 39425,
+      "export_bytes": 193355,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "4ea77655638ec1e5c307fc21690975e8",
+      "output_tokens": 17802,
+      "all_request_tokens_upper_bound": 52616,
+      "export_bytes": 296098,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "7f5a2f3e86e0cdb07893243a310112d8",
+      "output_tokens": 5286,
+      "all_request_tokens_upper_bound": 23482,
+      "export_bytes": 148748,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "ad9901fc95b027b6ce3d151a4e695cba",
+      "output_tokens": 14487,
+      "all_request_tokens_upper_bound": 42491,
+      "export_bytes": 247064,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "287ff7eb6297a96558e525e8310be951",
+      "output_tokens": 11307,
+      "all_request_tokens_upper_bound": 40218,
+      "export_bytes": 193446,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "c26424191ce840d8aa7c021d346b494b",
+      "output_tokens": 12755,
+      "all_request_tokens_upper_bound": 49782,
+      "export_bytes": 274106,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "330a6998e18817ee900d4315a1bbf674",
+      "output_tokens": 11971,
+      "all_request_tokens_upper_bound": 35060,
+      "export_bytes": 156171,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "a7beb78b2e9b469677eae9836e7d070b",
+      "output_tokens": 16757,
+      "all_request_tokens_upper_bound": 57252,
+      "export_bytes": 301568,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "d1e34f65ce45f6b764ac47a560cdfe68",
+      "output_tokens": 14358,
+      "all_request_tokens_upper_bound": 45585,
+      "export_bytes": 229781,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "97a9b008bc3e78ad7fe61ab33081ed7f",
+      "output_tokens": 10070,
+      "all_request_tokens_upper_bound": 33348,
+      "export_bytes": 155801,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "b92c9fd0dec90abe31fddcba3372a24b",
+      "output_tokens": 15120,
+      "all_request_tokens_upper_bound": 56980,
+      "export_bytes": 318917,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "08b1a74a702fd8d006ec830af19a8e0d",
+      "output_tokens": 12405,
+      "all_request_tokens_upper_bound": 52908,
+      "export_bytes": 299284,
+      "has_failure": true,
+      "completed_task": false
+    },
+    {
+      "trace_id": "56b790f88c0d155d7685b5c79aad488b",
+      "output_tokens": 12141,
+      "all_request_tokens_upper_bound": 32989,
+      "export_bytes": 168067,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "9f9af1f05a0d21b94ee004384d7811de",
+      "output_tokens": 7940,
+      "all_request_tokens_upper_bound": 32391,
+      "export_bytes": 161580,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "bb078d8b6534366f8ca851a8140a0251",
+      "output_tokens": 15094,
+      "all_request_tokens_upper_bound": 46699,
+      "export_bytes": 221563,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "b3be58ae88c0e89f0a586fa095b7fb8c",
+      "output_tokens": 11315,
+      "all_request_tokens_upper_bound": 34641,
+      "export_bytes": 173387,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "4b6bca8014e72b4158ca1b23048295ab",
+      "output_tokens": 10245,
+      "all_request_tokens_upper_bound": 35165,
+      "export_bytes": 168238,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "150480b3819c29480fe04e44257fafe1",
+      "output_tokens": 13735,
+      "all_request_tokens_upper_bound": 50145,
+      "export_bytes": 278472,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "b6602621e79959d394ebba8012cb17e6",
+      "output_tokens": 8388,
+      "all_request_tokens_upper_bound": 32118,
+      "export_bytes": 166552,
+      "has_failure": false,
+      "completed_task": false
+    },
+    {
+      "trace_id": "953b2b5f64f3a291a38a85d31e1e65eb",
+      "output_tokens": 11470,
+      "all_request_tokens_upper_bound": 47482,
+      "export_bytes": 241896,
+      "has_failure": false,
+      "completed_task": false
+    }
+  ],
+  "budget_note": "task_output and task_all_request_tokens_upper_bound include observed prefixes of unfinished tasks. Only completed_task_* cover finished games. All-request sums deliberately overcount repeated prompts; they are not the trainer's exact accumulated transcript length. Do not choose long-game limits without a measured training pilot. Export bytes are not connector collect_outputs payload size."
+}

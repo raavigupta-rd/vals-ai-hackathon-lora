@@ -280,12 +280,32 @@
         "sft-c1-s10": "pending"
       },
       "finished_at": "2026-11-14T17:01-08:00"
+    },
+    {
+      "id": "train_5fe05c5914f4",
+      "kind": "sft_cycle2a",
+      "dataset": "pokerbots-sft-c2a",
+      "tasks": 635,
+      "steps": 12,
+      "checkpoint_every": 6,
+      "base_checkpoint": "ckpt_46cfa1869701",
+      "status": "running",
+      "source": "teacher v2 on base + early s10 arena traces; 85 corrections (76 own-words resampled from sft-c1-s10), 58 agreements, 429 clean"
     }
   ],
   "training_slot": {
-    "owner": null,
-    "train_id": null,
-    "rule": "Free since 17:01 PST; next is SFT cycle 2 after gate + arena collection."
+    "parallel": true,
+    "slots": [
+      {
+        "train_id": "train_5fe05c5914f4",
+        "kind": "sft_cycle2a"
+      },
+      {
+        "train_id": null,
+        "kind": "sft_cycle2b (teacher v3), pending"
+      }
+    ],
+    "rule": "Two 4-GPU SFT runs may run together while only base and sft-c1-s10 are deployed (2+4+4=10)."
   },
   "publication": {
     "combined_implementation": "593a185",

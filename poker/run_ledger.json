@@ -269,16 +269,23 @@
       "tasks": 229,
       "steps": 10,
       "checkpoint_every": 5,
-      "status": "running",
-      "source": "teacher-judged base arena decisions (32 corrections x2, 8 agreements, 160 clean abstains)"
+      "status": "succeeded",
+      "source": "teacher-judged base arena decisions (32 corrections x2, 8 agreements, 160 clean abstains)",
+      "checkpoints": {
+        "step5": "ckpt_a41b042b2a4d",
+        "step10": "ckpt_46cfa1869701"
+      },
+      "deployments": {
+        "sft-c1-s5": "pending",
+        "sft-c1-s10": "pending"
+      },
+      "finished_at": "2026-11-14T17:01-08:00"
     }
   ],
   "training_slot": {
-    "owner": "A (Claude session)",
-    "train_id": "train_cd8535c42ea5",
-    "kind": "sft_cycle1",
-    "dataset": "pokerbots-sft-c1",
-    "rule": "Do not launch another training job until terminal."
+    "owner": null,
+    "train_id": null,
+    "rule": "Free since 17:01 PST; next is SFT cycle 2 after gate + arena collection."
   },
   "publication": {
     "combined_implementation": "593a185",
@@ -349,5 +356,18 @@
     "cutoff": "2026-11-15T14:00:00-08:00",
     "selection_target": "2026-11-15T12:30:00-08:00",
     "submission_target": "2026-11-15T13:15:00-08:00"
+  },
+  "gates": {
+    "base_ref": {
+      "file": "data/gate/base_ref.json",
+      "valid": 0.96,
+      "cutoff": 0.02,
+      "judged_agree": 0.53,
+      "judged_ci": [
+        0.4,
+        0.65
+      ],
+      "mixed_rate": 0.28
+    }
   }
 }

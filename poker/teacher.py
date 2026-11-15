@@ -84,6 +84,15 @@ def equity_vs_range(hole: list[str], codes: list[str], board: list[str] = (), sa
     return _equity(tuple(hole), tuple(sorted(set(codes))), tuple(board), samples)
 
 
+# v5 exploit rules, each on only when named here, e.g. EXPLOITS = {"river_fold", "steal", "stab"}.
+EXPLOITS: set[str] = set()
+STEAL_RANGES = {
+    "CO": "22+ A2s+ K5s+ Q8s+ J8s+ T8s+ 97s+ 86s+ 76s 65s A7o+ K9o+ QTo+ JTo",
+    "BTN": "22+ A2s+ K2s+ Q5s+ J7s+ T7s+ 96s+ 85s+ 75s+ 64s+ 54s A2o+ K8o+ Q9o+ J9o+ T9o 98o",
+}
+STEAL_RANGES["SB"] = STEAL_RANGES["BTN"]
+STEAL_MIN_BB = 15
+
 EVIDENCE = False  # v4: act only on strong evidence (see the interval helpers and the verdicts below)
 MARGIN_FOLD = 0.02
 MARGIN_CALL = 0.02
@@ -507,6 +516,10 @@ def judge(con, match_id: str, hand: int, seat: int, action_index: int) -> dict:
     verdict["actual"] = actual
     if (free := free_fold_verdict(row["to_call"], actual)):
         return verdict | {"rule": "free_fold", "preferred": free, "agree": False}
+    if "river_fold" in EXPLOITS and (v := _river_fold(con, row, verdict, match_id, hand, seat)):
+        return v
+    if "stab" in EXPLOITS and (v := _stab(con, rows, row, verdict, match_id, hand, seat)):
+        return v
     if row["street"] in BOARD_CARDS and row["to_call"] > 0 and actual in ("call", "fold"):
         return _judge_postflop(con, rows, row, verdict, match_id, hand, seat)
     if row["street"] != "preflop" or not row["hand_code"]:
@@ -520,6 +533,8 @@ def judge(con, match_id: str, hand: int, seat: int, action_index: int) -> dict:
         return verdict | {"rule": "own_shove", "preferred": preferred, "agree": agree}
     if not raises and row["to_call"] <= 2:
         preferred = open_verdict(row["hand_code"], row["position"], actual, to_call=row["to_call"])
+        if preferred is None and "steal" in EXPLOITS and _steal(row, before, stack0):
+            return verdict | {"rule": "steal", "preferred": "raise", "agree": False}
         agree = None if preferred is None else preferred == actual
         return verdict | {"rule": "unopened", "preferred": preferred, "agree": agree}
     stack_before = stack0
@@ -573,3 +588,44 @@ def _judge_postflop(con, rows, row, verdict, match_id, hand, seat) -> dict:
     agree = None if result["preferred"] is None else result["preferred"] == actual
     return verdict | result | {"agree": agree, "bettor": bettor["sub_key"], "n": own, "street": row["street"],
                                "to_call": row["to_call"], "pot": row["pot_before"]}
+
+
+def _board_for(con, match_id: str, hand: int, street: str) -> list[str] | None:
+    board_row = con.execute("SELECT board FROM hands WHERE match_id=? AND hand_number=?", (match_id, hand)).fetchone()
+    board = (board_row[0] or "").split()[: BOARD_CARDS[street]] if board_row else []
+    return board if len(board) == BOARD_CARDS[street] else None
+
+
+def _river_fold(con, row, verdict, match_id, hand, seat) -> dict | None:
+    """Exploit `river_fold`: heads-up river, a 0.5-1.0 pot bet, and we call with a one-pair hand. Fold."""
+    if (row["street"] != "river" or row["action"] != "call" or row["players_remaining"] != 2
+            or not 0.5 <= (row["facing_frac"] or 0) <= 1.0):
+        return None
+    hole, board = _hole(con, match_id, hand, seat), _board_for(con, match_id, hand, "river")
+    if not hole or not board or strength_class(hole, board) not in ("pair", "top_pair"):
+        return None
+    return verdict | {"rule": "river_fold", "preferred": "fold", "agree": False}
+
+
+def _steal(row, before, stack0) -> bool:
+    """Exploit `steal`: unopened (no raise, no limp), CO/BTN/SB, we folded a hand in the steal range, 15bb or more."""
+    spec = STEAL_RANGES.get(row["position"])
+    if not spec or row["action"] != "fold" or not row["hand_code"] or not in_range(row["hand_code"], spec):
+        return False
+    if any(r["street"] == "preflop" and r["action"] in ("raise", "bet", "call") for r in before):
+        return False
+    return (row["effective_stack"] or stack0) / 2 >= STEAL_MIN_BB
+
+
+def _stab(con, rows, row, verdict, match_id, hand, seat) -> dict | None:
+    """Exploit `stab`: heads-up flop or turn, the opponent checked to us, we check with air or a draw. Bet."""
+    if (row["street"] not in ("flop", "turn") or row["to_call"] != 0 or row["action"] != "check"
+            or row["players_remaining"] != 2):
+        return None
+    if not any(r["idx"] < row["idx"] and r["street"] == row["street"] and r["seat"] != seat
+               and r["action"] == "check" for r in rows):
+        return None
+    hole, board = _hole(con, match_id, hand, seat), _board_for(con, match_id, hand, row["street"])
+    if not hole or not board or strength_class(hole, board) not in ("air", "draw"):
+        return None
+    return verdict | {"rule": "stab", "preferred": "bet", "agree": False}

@@ -366,3 +366,166 @@ def test_evidence_mode_widens_preflop_ranges(monkeypatch):
     assert t.facing_raise_verdict("K7o", "CO", "call", raises_before=1, to_call=4, stack=200) == "fold"
     assert t.facing_raise_verdict("99", "CO", "call", raises_before=2, to_call=14, stack=200) == "fold"  # 3-bet spec same
     assert t.open_shove_verdict("A9s", effective_bb=100) == "fold"  # own_shove unchanged
+
+
+# ---- exploit rules (v5): river_fold, steal, stab; all OFF unless named in EXPLOITS ----
+
+import pytest
+
+from poker import teacher as _t
+
+FLOP_BOARD = ("Ks", "9d", "4h", "2c", "3d")
+
+
+@pytest.fixture
+def exploits(monkeypatch):
+    def enable(*names):
+        monkeypatch.setattr(_t, "EXPLOITS", set(names))
+    return enable
+
+
+def _xdb(hands, nseats=2):
+    con = db.connect(":memory:")
+    m = _match("m_x", hands)
+    for s in range(2, nseats):
+        m["seats"].append({"seat": s, "entry": {"id": f"e{s}", "kind": "team", "name": f"t{s}",
+                                                 "submission_name": "v1", "deployment_id": f"d{s}"}})
+    db.load_match(con, m)
+    con.commit()
+    return con
+
+
+def _river_db(our_cards, to_call=80, pot=180, board=FLOP_BOARD, action="call"):
+    acts = [_pa(0, "river", "bet", to_call, pot - to_call, 0, -to_call, 100),
+            _pa(1, "river", action, None, pot, to_call, -to_call if action == "call" else 0, 100)]
+    return _xdb([_phand(1, {0: ["5h", "6h"], 1: our_cards}, acts, board=board)])
+
+
+def test_exploits_default_to_an_empty_set():
+    assert _t.EXPLOITS == set()
+
+
+def test_river_fold_is_off_by_default():
+    v = judge(_river_db(["Kh", "7d"]), "m_x", 1, seat=1, action_index=0)
+    assert v["rule"] != "river_fold"
+
+
+def test_river_fold_flags_a_pair_call_of_a_big_river_bet(exploits):
+    exploits("river_fold")
+    for cards in (["Kh", "7d"], ["9h", "7d"]):  # top pair, second pair
+        v = judge(_river_db(cards), "m_x", 1, seat=1, action_index=0)
+        assert v["rule"] == "river_fold" and v["preferred"] == "fold" and v["agree"] is False, cards
+    folded = judge(_river_db(["Kh", "7d"], action="fold"), "m_x", 1, seat=1, action_index=0)
+    assert folded["rule"] != "river_fold"  # only calls are corrected
+
+
+def test_river_fold_leaves_strong_hands_small_bets_and_air_alone(exploits):
+    exploits("river_fold")
+    strong = judge(_river_db(["Kh", "Kd"]), "m_x", 1, seat=1, action_index=0)
+    assert strong["rule"] != "river_fold"
+    small = judge(_river_db(["Kh", "7d"], to_call=30, pot=130), "m_x", 1, seat=1, action_index=0)  # 0.3 pot
+    assert small["rule"] != "river_fold"
+    huge = judge(_river_db(["Kh", "7d"], to_call=200, pot=300), "m_x", 1, seat=1, action_index=0)  # 2.0 pot
+    assert huge["rule"] != "river_fold"
+    air = judge(_river_db(["7h", "6s"]), "m_x", 1, seat=1, action_index=0)
+    assert air["rule"] != "river_fold"
+
+
+def test_river_fold_needs_a_heads_up_river(exploits):
+    exploits("river_fold")
+    acts = [_pa(0, "river", "bet", 80, 100, 0, -80, 100), _pa(1, "river", "call", None, 180, 80, -80, 100)]
+    con = _xdb([_phand(1, {0: ["5h", "6h"], 1: ["Kh", "7d"], 2: ["8h", "8s"]}, acts, seats=(0, 1, 2))], nseats=3)
+    assert judge(con, "m_x", 1, seat=1, action_index=0)["rule"] != "river_fold"
+    flop = [_pa(0, "flop", "bet", 80, 100, 0, -80, 100), _pa(1, "flop", "call", None, 180, 80, -80, 100)]
+    con = _xdb([_phand(1, {0: ["5h", "6h"], 1: ["Kh", "7d"]}, flop)])
+    assert judge(con, "m_x", 1, seat=1, action_index=0)["rule"] != "river_fold"
+
+
+def _steal_db(position_seat, cards, action="fold", limp=False, raised=False, stack=200):
+    # 4 seats, button 0: SB=1, BB=2, CO=3, BTN=0 (see position_labels)
+    acts = []
+    if limp:
+        acts.append(_act(2, "call", None, 3, 2, -2, stack - 2))
+    if raised:
+        acts.append(_act(2, "raise", 6, 3, 2, -6, stack - 6))
+    to_call = 1 if position_seat == 1 else 0 if position_seat == 2 else 2
+    acts.append(_act(position_seat, action, None, 3, to_call, 0, stack))
+    players = [{"seat": s, "hole_cards": cards if s == position_seat else ["2c", "3d"], "starting_stack": stack}
+               for s in range(4)]
+    hand = {"hand_number": 1, "button_seat": 0, "blinds": {"1": 1, "2": 2}, "players": players, "board": [],
+            "showdown": False, "shown": {}, "actions": acts}
+    return _xdb([hand], nseats=4)
+
+
+def test_steal_is_off_by_default():
+    v = judge(_steal_db(3, ["Ah", "5s"]), "m_x", 1, seat=3, action_index=0)
+    assert v["preferred"] is None
+
+
+def test_steal_prefers_raise_for_folded_steal_hands_in_late_position(exploits):
+    exploits("steal")
+    co = judge(_steal_db(3, ["Ah", "5h"]), "m_x", 1, seat=3, action_index=0)
+    assert co["rule"] == "steal" and co["preferred"] == "raise" and co["agree"] is False
+    btn = judge(_steal_db(0, ["Kh", "3h"]), "m_x", 1, seat=0, action_index=0)
+    assert btn["rule"] == "steal" and btn["preferred"] == "raise"
+    sb = judge(_steal_db(1, ["Kh", "8c"]), "m_x", 1, seat=1, action_index=0)
+    assert sb["rule"] == "steal" and sb["preferred"] == "raise"
+
+
+def test_steal_ranges_differ_by_seat_and_exclude_trash(exploits):
+    exploits("steal")
+    assert judge(_steal_db(3, ["Kh", "3h"]), "m_x", 1, seat=3, action_index=0)["preferred"] is None  # K3s: BTN only
+    assert judge(_steal_db(0, ["7h", "2c"]), "m_x", 1, seat=0, action_index=0)["preferred"] is None
+    assert _t.STEAL_RANGES["CO"] != _t.STEAL_RANGES["BTN"] and _t.STEAL_RANGES["BTN"] == _t.STEAL_RANGES["SB"]
+
+
+def test_steal_needs_an_unopened_pot_and_a_deep_stack_and_a_fold(exploits):
+    exploits("steal")
+    assert judge(_steal_db(3, ["Ah", "5h"], limp=True), "m_x", 1, seat=3, action_index=0)["rule"] != "steal"
+    assert judge(_steal_db(3, ["Ah", "5h"], raised=True), "m_x", 1, seat=3, action_index=0)["rule"] != "steal"
+    short = judge(_steal_db(3, ["Ah", "5h"], stack=28), "m_x", 1, seat=3, action_index=0)  # 14bb
+    assert short["rule"] != "steal"
+    deep = judge(_steal_db(3, ["Ah", "5h"], stack=30), "m_x", 1, seat=3, action_index=0)  # 15bb
+    assert deep["rule"] == "steal"
+    raised = judge(_steal_db(3, ["Ah", "5h"], action="raise"), "m_x", 1, seat=3, action_index=0)
+    assert raised["rule"] != "steal"
+
+
+def test_steal_does_not_apply_in_the_big_blind(exploits):
+    exploits("steal")
+    v = judge(_steal_db(2, ["Ah", "5h"], action="fold"), "m_x", 1, seat=2, action_index=0)
+    assert v["rule"] != "steal"
+
+
+def _stab_db(our_cards, our_action="check", opp_checked=True, board=FLOP_BOARD, street="flop", seats=2):
+    acts = []
+    if opp_checked:
+        acts.append(_pa(0, street, "check", None, 10, 0, 0, 100))
+    acts.append(_pa(1, street, our_action, None, 10, 0, 0, 100))
+    cards = {0: ["5h", "6c"], 1: our_cards} | ({2: ["8h", "8s"]} if seats == 3 else {})
+    return _xdb([_phand(1, cards, acts, board=board, seats=tuple(range(seats)))], nseats=seats)
+
+
+def test_stab_is_off_by_default():
+    v = judge(_stab_db(["7h", "2s"]), "m_x", 1, seat=1, action_index=0)
+    assert v["preferred"] is None
+
+
+def test_stab_prefers_a_bet_after_a_check_with_air_or_a_draw(exploits):
+    exploits("stab")
+    air = judge(_stab_db(["7h", "2s"]), "m_x", 1, seat=1, action_index=0)
+    assert air["rule"] == "stab" and air["preferred"] == "bet" and air["agree"] is False
+    draw = judge(_stab_db(["Ah", "6h"], board=("Ks", "9h", "4h", "2c", "3d")), "m_x", 1, seat=1, action_index=0)
+    assert draw["rule"] == "stab" and draw["preferred"] == "bet"
+    turn = judge(_stab_db(["7h", "6s"], street="turn"), "m_x", 1, seat=1, action_index=0)
+    assert turn["rule"] == "stab"
+
+
+def test_stab_leaves_made_hands_first_to_act_river_and_multiway_alone(exploits):
+    exploits("stab")
+    assert judge(_stab_db(["Kh", "Kd"]), "m_x", 1, seat=1, action_index=0)["rule"] != "stab"
+    assert judge(_stab_db(["7h", "2s"], opp_checked=False), "m_x", 1, seat=1, action_index=0)["rule"] != "stab"
+    assert judge(_stab_db(["7h", "2s"], street="river"), "m_x", 1, seat=1, action_index=0)["rule"] != "stab"
+    assert judge(_stab_db(["7h", "2s"], seats=3), "m_x", 1, seat=1, action_index=0)["rule"] != "stab"
+    bet = judge(_stab_db(["7h", "2s"], our_action="bet"), "m_x", 1, seat=1, action_index=0)
+    assert bet["rule"] != "stab"

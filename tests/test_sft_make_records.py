@@ -117,3 +117,57 @@ def test_rules_filter_keeps_only_listed_corrections_and_treats_the_rest_as_ancho
     assert by_id["s"]["source"] == "teacher_resampled"
     assert by_id["r"]["source"] == "self_clean"  # out-of-scope correction: base's own action kept as an anchor
     assert stats["out_of_scope"] == 1
+
+
+# ---- exploit corrections (v5) ----
+
+from poker.sft.make_records import _correction_args
+
+
+def _prompt(street, pot, legal, board="-", hole="7h 2s"):
+    text = (f"Your seat: 1 (position 2; button)\nStreet: {street}\nYour hole cards: {hole}\nBoard: {board}\n"
+            f"Pot (including current bets): {pot}\nLegal actions: {legal}\n"
+            "  seat 0: x stack 100, bet 0\n  seat 1: y stack 100, bet 0")
+    return {"messages": [{"role": "user", "content": text}]}
+
+
+def test_exploit_rules_have_plain_correction_text_without_data_talk():
+    for rule, word in (("river_fold", "Fold"), ("steal", "Raise"), ("stab", "Bet")):
+        text = correction_reasoning({"rule": rule, "preferred": word.lower()}, hand_code="A5s")
+        assert text.endswith(word + ".") and len(text) < 300
+        assert not any(w in text.lower() for w in ("data", "field", "statistic", "team", "sample"))
+
+
+def test_exploit_correction_args_are_legal():
+    assert _correction_args({"rule": "river_fold", "preferred": "fold"}, {}) == {"action": "fold"}
+    steal = _correction_args({"rule": "steal", "preferred": "raise"},
+                             _prompt("preflop", 3, "fold, call 2, raise to 4-200"))
+    assert steal == {"action": "raise", "amount": 5}
+    clamped = _correction_args({"rule": "steal", "preferred": "raise"},
+                               _prompt("preflop", 3, "fold, call 2, raise to 6-200"))
+    assert clamped == {"action": "raise", "amount": 6}
+    capped = _correction_args({"rule": "steal", "preferred": "raise"}, _prompt("preflop", 3, "fold, call 2, raise to 3-4"))
+    assert capped == {"action": "raise", "amount": 4}
+    stab = _correction_args({"rule": "stab", "preferred": "bet"},
+                            _prompt("flop", 20, "check, bet to 2-100", board="Ks 9d 4h"))
+    assert stab == {"action": "bet", "amount": 10}
+    small = _correction_args({"rule": "stab", "preferred": "bet"},
+                             _prompt("flop", 3, "check, bet to 2-100", board="Ks 9d 4h"))
+    assert small == {"action": "bet", "amount": 2}
+    assert _correction_args({"rule": "stab", "preferred": "bet"}, _prompt("flop", 20, "check, call 5")) is None
+
+
+def test_main_exploits_flag_sets_the_teacher_set(monkeypatch, tmp_path):
+    import sys
+
+    from poker import teacher
+    from poker.sft import make_records
+
+    monkeypatch.setattr(teacher, "EXPLOITS", set())
+    joined_path = tmp_path / "j.jsonl"
+    joined_path.write_text("")
+    monkeypatch.setattr(sys, "argv", ["x", "--joined", str(joined_path), "--db", str(tmp_path / "a.db"),
+                                      "--cycle", "1", "--out", str(tmp_path / "o.jsonl"),
+                                      "--exploits", "river_fold,steal"])
+    make_records.main()
+    assert teacher.EXPLOITS == {"river_fold", "steal"}

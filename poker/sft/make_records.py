@@ -85,6 +85,12 @@ def correction_reasoning(verdict: dict, hand_code: str) -> str:
     if rule == "own_shove":
         return (f"Going all-in with {hand_code} at this stack depth risks my whole stack with a hand that is behind "
                 f"most calling ranges. Busting ranks last. Fold and wait for a better spot.")
+    if rule == "river_fold":
+        return "On the river a bet this size is rarely a bluff; a pair is not enough. Fold."
+    if rule == "steal":
+        return "Folded to me in late position: the blinds fold most of the time to a small raise. Raise."
+    if rule == "stab":
+        return "They checked, which usually means weakness; a half-pot bet often takes it down. Bet."
     if rule == "free_fold":
         return "Checking costs nothing, so folding can only lose. Check."
     raise ValueError(f"no correction text for rule {rule!r}")
@@ -95,9 +101,21 @@ def _correction_args(verdict: dict, record: dict) -> dict | None:
     if preferred in ("fold", "check", "call"):
         return {"action": preferred}
     state = parse_prompt(record["messages"])
-    if not state or state["raise_type"] != "raise" or state["raise_min"] is None:
+    if not state or state["raise_min"] is None or state["raise_type"] not in ("raise", "bet"):
         return None
-    amount = min(max(state["raise_min"], 6), state["raise_max"])
+    if state["raise_type"] == "bet" and verdict["rule"] != "stab":
+        return None
+    if state["raise_type"] == "raise" and verdict["rule"] == "stab":
+        return None
+    if verdict["rule"] == "steal":
+        amount = min(max(state["raise_min"], 5), state["raise_max"])  # 2.5bb
+    elif verdict["rule"] == "stab":
+        if state["raise_type"] != "bet":
+            return None
+        amount = min(max(state["raise_min"], round(0.5 * state["pot"])), state["raise_max"])
+        return {"action": "bet", "amount": int(amount)}
+    else:
+        amount = min(max(state["raise_min"], 6), state["raise_max"])
     return {"action": "raise", "amount": int(amount)}
 
 
@@ -168,6 +186,7 @@ def main() -> None:
     parser.add_argument("--abstain-ratio", type=float, default=2.0)
     parser.add_argument("--template-weight", type=float, default=0.0,
                         help="weight of unvalidated fixed-sentence corrections; 0 drops them (default)")
+    parser.add_argument("--exploits", help="comma list of teacher v5 exploit rules to enable: river_fold,steal,stab")
     parser.add_argument("--rules", help="comma list of teacher rules whose corrections to keep (ablations); others become anchors")
     parser.add_argument("--weight-scale", type=float, default=1.0, help="multiply every weight (newer cycles weigh more)")
     parser.add_argument("--resampled", type=Path, help="poker/sft/resample.py output: own-words corrections")
@@ -179,6 +198,10 @@ def main() -> None:
             item = json.loads(line)
             if item.get("reply"):
                 resampled[item["span_id"]] = item["reply"] | {"preferred": item.get("preferred")}
+    if args.exploits:
+        import poker.teacher as teacher
+
+        teacher.EXPLOITS = {x for x in args.exploits.split(",") if x}
     con = db.connect(args.db)
     rows = []
     for line in args.joined.open(encoding="utf-8"):

@@ -856,10 +856,12 @@ def test_one_pair_pot_cap_folds_pairs_and_air_facing_an_overbet(exploits):
     assert folded["rule"] != "one_pair_pot_cap"
 
 
-def _raised_db(our_cards, street):
-    acts = [_pa(1, street, "bet", 20, 100, 0, -20, 180), _pa(0, street, "raise", 60, 120, 20, -60, 140),
-            _pa(1, street, "call", None, 180, 40, -40, 140)]
-    return _xdb([_phand(1, {0: ["5h", "6h"], 1: our_cards}, acts)])
+def _raised_db(our_cards, street, raise_to=100, board=("Ks", "9d", "4h", "2c", "3d")):
+    """We bet 20 into 100, seat 0 raises to `raise_to`, we call: to_call = raise_to - 20 into 120 + raise_to."""
+    to_call = raise_to - 20
+    acts = [_pa(1, street, "bet", 20, 100, 0, -20, 180), _pa(0, street, "raise", raise_to, 120, 20, -raise_to, 200 - raise_to),
+            _pa(1, street, "call", None, 120 + raise_to, to_call, -to_call, 180 - to_call)]
+    return _xdb([_phand(1, {0: ["5h", "6h"], 1: our_cards}, acts, board=board)])
 
 
 def test_one_pair_pot_cap_folds_one_pair_facing_a_raise_on_the_flop_or_turn(exploits):
@@ -871,6 +873,16 @@ def test_one_pair_pot_cap_folds_one_pair_facing_a_raise_on_the_flop_or_turn(expl
     assert river["rule"] != "one_pair_pot_cap"
     strong = judge(_raised_db(["Kh", "Kd"], "flop"), "m_x", 1, seat=1, action_index=1)
     assert strong["rule"] != "one_pair_pot_cap"
+
+
+def test_one_pair_pot_cap_calls_a_cheap_raise_and_keeps_strong_draws(exploits):
+    exploits("one_pair_pot_cap")
+    cheap = judge(_raised_db(["Kh", "7d"], "flop", raise_to=60), "m_x", 1, seat=1, action_index=1)  # 40 into 220: 18%
+    assert cheap["rule"] != "one_pair_pot_cap"
+    draw_board = ("Kc", "3c", "Qc", "Jh", "2d")  # AcAd: overpair + nut flush draw + gutshot
+    for street in ("flop", "turn"):
+        v = judge(_raised_db(["Ac", "Ad"], street, raise_to=100, board=draw_board), "m_x", 1, seat=1, action_index=1)
+        assert v["rule"] != "one_pair_pot_cap", street
 
 
 def test_one_pair_pot_cap_blocks_huge_bets_and_raises_with_one_pair(exploits):

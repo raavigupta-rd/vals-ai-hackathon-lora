@@ -749,6 +749,7 @@ FIRST_IN_BASE = {"CO": 5, "BTN": 5, "SB": 6}
 FIRST_IN_PER_LIMPER, FIRST_IN_CAP, FIRST_IN_CAP_PREMIUM, FIRST_IN_MAX_RAISE = 2, 8, 10, 8
 MONSTER_BET_FRAC = 0.6
 POT_CAP_STACK_FRAC = 0.5
+POT_CAP_RAISED_MIN_PRICE = 0.25  # after our bet is raised, fold one pair only when the call needs more than this
 
 
 def open_target(position: str, code: str, limpers: int) -> int:
@@ -894,7 +895,11 @@ def _v6_postflop(con, rows, row, verdict, match_id, hand, seat) -> dict | None:
     was_raised = row["street"] in ("flop", "turn") and bool(own_bets) and any(
         own_bets[0] < r["idx"] < row["idx"] and r["street"] == row["street"] and r["seat"] != seat
         and r["action"] == "raise" for r in rows)
-    if action in ("call", "raise") and to_call > 0 and ((row["facing_frac"] or 0) > 1.0 or was_raised):
+    required = to_call / ((row["pot_before"] or 0) + to_call) if to_call > 0 else 0
+    if was_raised and required <= POT_CAP_RAISED_MIN_PRICE:
+        was_raised = False  # a cheap raise: one pair still has the odds to see the next card
+    if action in ("call", "raise") and to_call > 0 and ((row["facing_frac"] or 0) > 1.0 or was_raised) \
+            and not _has_draw(hole, board):
         return verdict | {"rule": "one_pair_pot_cap", "preferred": "fold", "agree": False}
     if action in ("bet", "raise") and stack0 and -(row["chip_change"] or 0) > POT_CAP_STACK_FRAC * stack0:
         return verdict | {"rule": "one_pair_pot_cap", "preferred": "check" if to_call == 0 else "fold", "agree": False}

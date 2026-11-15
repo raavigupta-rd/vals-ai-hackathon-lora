@@ -126,3 +126,41 @@ def test_repeats_sample_each_judged_spot_several_times():
     entries = [entry(i, "fold" if i % 3 == 0 else None) for i in range(60)]
     spots = gate.select_spots(entries, n_judged=None, n_other=10, seed=1, repeats=3)
     assert sum(x["group"] == "judged" for x in spots) == 60 and sum(x["group"] == "other" for x in spots) == 10
+
+
+def _row(span, group, action, preferred=None, rule="allin_call"):
+    return {"span_id": span, "group": group, "rule": rule if group == "judged" else None, "preferred": preferred,
+            "orig": "call", "valid": True, "cutoff": False, "tokens": 500, "action": action}
+
+
+def test_bootstrap_ci_brackets_the_mean_and_narrows_with_more_data():
+    lo, hi = gate.bootstrap_ci([1, 0] * 10, seed=0)
+    wide = hi - lo
+    lo2, hi2 = gate.bootstrap_ci([1, 0] * 200, seed=0)
+    assert lo < 0.5 < hi and lo2 < 0.5 < hi2 and hi2 - lo2 < wide
+
+
+def test_paired_difference_uses_per_spot_means():
+    base = [_row(f"s{i}", "judged", "call", "fold") for i in range(20) for _ in range(3)]
+    cand = [_row(f"s{i}", "judged", "fold", "fold") for i in range(20) for _ in range(3)]
+    d = gate.paired_difference(base, cand, seed=0)
+    assert d["n_spots"] == 20 and d["diff"] == 1.0 and d["lo"] > 0.9
+
+
+def test_mixing_counts_spots_where_replays_choose_different_actions():
+    rows = [_row("a", "other", "check"), _row("a", "other", "bet"),
+            _row("b", "other", "fold"), _row("b", "other", "fold")]
+    m = gate.mixing(rows)
+    assert m["spots"] == 2 and m["mixed_rate"] == 0.5 and m["entropy_bits"] > 0
+
+
+def test_verdict_rejects_a_candidate_that_stops_mixing():
+    ref = {"valid_rate": 1.0, "cutoff_rate": 0.0, "mixing": {"mixed_rate": 0.30}}
+    good = {"valid_rate": 1.0, "cutoff_rate": 0.0, "mixing": {"mixed_rate": 0.25}}
+    rigid = {"valid_rate": 1.0, "cutoff_rate": 0.0, "mixing": {"mixed_rate": 0.05}}
+    better = {"diff": 0.2, "lo": 0.05, "hi": 0.3}
+    assert gate.verdict(ref, good, better)["pass"] is True
+    v = gate.verdict(ref, rigid, better)
+    assert v["pass"] is False and "mixing" in " ".join(v["reasons"])
+    worse = {"diff": -0.2, "lo": -0.35, "hi": -0.05}
+    assert gate.verdict(ref, good, worse)["pass"] is False

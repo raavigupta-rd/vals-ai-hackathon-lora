@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import math
 import random
 import statistics
 import time
@@ -143,7 +144,8 @@ def original_action(record: dict) -> str | None:
     return action if action in ACTIONS else None
 
 
-def select_spots(entries: list[dict], *, n_judged: int | None, n_other: int, seed: int, repeats: int = 1) -> list[dict]:
+def select_spots(entries: list[dict], *, n_judged: int | None, n_other: int, seed: int, repeats: int = 1,
+                 other_repeats: int = 1) -> list[dict]:
     """entries: {record, verdict}. Judged = verdict.preferred is not None. Deterministic for a fixed seed,
     whatever the input order."""
     key = lambda e: e["record"]["span_id"]  # noqa: E731
@@ -154,7 +156,7 @@ def select_spots(entries: list[dict], *, n_judged: int | None, n_other: int, see
         judged = rng.sample(judged, n_judged)
     other = rng.sample(other, min(n_other, len(other)))
     # Sampling at temperature is noisy; replaying each judged spot `repeats` times averages that noise out.
-    return [dict(e, group="judged") for e in judged for _ in range(repeats)] + [dict(e, group="other") for e in other]
+    return [dict(e, group="judged") for e in judged for _ in range(repeats)] + [dict(e, group="other") for e in other for _ in range(other_repeats)]
 
 
 def quantile(values: list[float], p: float) -> float | None:
@@ -184,6 +186,76 @@ def aggregate(results: list[dict]) -> dict:
     out["other"] = {"n": len(other), "dist": {a: c / len(other) if other else None for a, c in counts.items()},
                     "drift": sum(1 for r in other if r["action"] != r["orig"]) / len(other) if other else None}
     return out
+
+
+def bootstrap_ci(values: list[float], *, seed: int = 0, n: int = 2000, level: float = 0.95) -> tuple[float, float]:
+    """Percentile bootstrap interval for the mean of `values`."""
+    if not values:
+        return (float("nan"), float("nan"))
+    rng = random.Random(seed)
+    k = len(values)
+    means = sorted(sum(rng.choice(values) for _ in range(k)) / k for _ in range(n))
+    tail = (1 - level) / 2
+    return means[int(tail * (n - 1))], means[int((1 - tail) * (n - 1))]
+
+
+def _spot_agreement(rows: list[dict]) -> dict[str, float]:
+    by: dict[str, list[int]] = {}
+    for r in rows:
+        if r["group"] == "judged":
+            by.setdefault(r["span_id"], []).append(int(r["action"] == r["preferred"]))
+    return {k: sum(v) / len(v) for k, v in by.items()}
+
+
+def paired_difference(reference: list[dict], candidate: list[dict], *, seed: int = 0) -> dict:
+    """Candidate minus reference teacher agreement, averaged per judged spot, with a bootstrap 95% interval
+    over spots. Spots are the unit, so the repeats of one spot do not count as independent evidence."""
+    ref, cand = _spot_agreement(reference), _spot_agreement(candidate)
+    common = sorted(set(ref) & set(cand))
+    diffs = [cand[k] - ref[k] for k in common]
+    if not diffs:
+        return {"n_spots": 0, "diff": None, "lo": None, "hi": None}
+    lo, hi = bootstrap_ci(diffs, seed=seed)
+    return {"n_spots": len(common), "diff": sum(diffs) / len(diffs), "lo": lo, "hi": hi}
+
+
+def mixing(rows: list[dict]) -> dict:
+    """How much the policy still mixes on spots the teacher does not judge: the share of spots whose replays
+    chose more than one action, and the entropy of the pooled action distribution."""
+    by: dict[str, list[str]] = {}
+    for r in rows:
+        if r["group"] == "other" and r["action"]:
+            by.setdefault(r["span_id"], []).append(r["action"])
+    multi = [v for v in by.values() if len(v) > 1]
+    pooled = [a for v in by.values() for a in v]
+    entropy = 0.0
+    for a in set(pooled):
+        q = pooled.count(a) / len(pooled)
+        entropy -= q * math.log2(q)
+    return {"spots": len(multi), "mixed_rate": sum(len(set(v)) > 1 for v in multi) / len(multi) if multi else None,
+            "entropy_bits": round(entropy, 3)}
+
+
+MIN_VALID, MAX_CUTOFF, MIXING_FLOOR, WORSE_MARGIN = 0.99, 0.02, 0.6, -0.05
+
+
+def verdict(reference: dict, candidate: dict, diff: dict) -> dict:
+    """Pass when the candidate is valid, rarely cut off, not clearly worse than the reference on judged spots,
+    and still mixes on other spots (at least 60% of the reference's mixed rate). Determinism is not a goal."""
+    reasons = []
+    if (candidate["valid_rate"] or 0) < MIN_VALID:
+        reasons.append(f"valid rate {candidate['valid_rate']:.0%} below {MIN_VALID:.0%}")
+    if (candidate["cutoff_rate"] or 0) > MAX_CUTOFF:
+        reasons.append(f"cut-off rate {candidate['cutoff_rate']:.0%} above {MAX_CUTOFF:.0%}")
+    if diff.get("hi") is not None and diff["hi"] < 0:
+        reasons.append(f"teacher agreement clearly worse ({diff['diff']:+.0%}, CI {diff['lo']:+.0%}..{diff['hi']:+.0%})")
+    elif diff.get("diff") is not None and diff["diff"] < WORSE_MARGIN:
+        reasons.append(f"teacher agreement lower ({diff['diff']:+.0%})")
+    ref_mix = (reference.get("mixing") or {}).get("mixed_rate")
+    cand_mix = (candidate.get("mixing") or {}).get("mixed_rate")
+    if ref_mix and cand_mix is not None and cand_mix < MIXING_FLOOR * ref_mix:
+        reasons.append(f"mixing collapsed: {cand_mix:.0%} of spots mixed vs {ref_mix:.0%} for the reference")
+    return {"pass": not reasons, "reasons": reasons}
 
 
 def run_gate(spots: list[dict], deployments: list[str], client, tools: list[dict], concurrency: int = 8) -> dict:
@@ -259,6 +331,7 @@ def main() -> None:
     parser.add_argument("--n-judged", type=int, default=None, help="default: all teacher-judged spots")
     parser.add_argument("--n-other", type=int, default=150)
     parser.add_argument("--repeats", type=int, default=3, help="replays per judged spot")
+    parser.add_argument("--other-repeats", type=int, default=2, help="replays per other spot (measures mixing)")
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=None)
@@ -266,15 +339,35 @@ def main() -> None:
     client = HttpClient(load_api_key())
     started = time.monotonic()
     entries = load_entries(args.joined, args.db, args.source_deployment)
-    spots = select_spots(entries, n_judged=args.n_judged, n_other=args.n_other, seed=args.seed, repeats=args.repeats)
+    spots = select_spots(entries, n_judged=args.n_judged, n_other=args.n_other, seed=args.seed, repeats=args.repeats,
+                         other_repeats=args.other_repeats)
     print(f"{len(entries)} arena decisions; replaying {len(spots)} x {len(args.deployment)} deployments", flush=True)
     result = run_gate(spots, args.deployment, client, chat_tools(), args.concurrency)
     out = args.out or Path("data/gate") / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".json")
     out.parent.mkdir(parents=True, exist_ok=True)
     meta = {"deployments": args.deployment, "seed": args.seed, "n_judged": args.n_judged, "n_other": args.n_other,
             "runtime_s": round(time.monotonic() - started, 1)}
+    for dep, rows in result["spots"].items():
+        result["summary"][dep]["mixing"] = mixing(rows)
+    reference = args.deployment[0]
+    result["comparisons"] = {}
+    for dep in args.deployment[1:]:
+        diff = paired_difference(result["spots"][reference], result["spots"][dep], seed=args.seed)
+        result["comparisons"][dep] = {"vs": reference, "diff": diff,
+                                      "verdict": verdict(result["summary"][reference], result["summary"][dep], diff)}
     out.write_text(json.dumps(meta | result, indent=1))
     print(format_table(result["summary"]))
+    for dep, s in result["summary"].items():
+        lo, hi = bootstrap_ci(list(_spot_agreement(result["spots"][dep]).values()), seed=args.seed)
+        m = s["mixing"]
+        mixed = _pct(m["mixed_rate"])
+        print(f"{dep}: judged agree 95% CI {lo:.0%}..{hi:.0%}; other spots mixed {mixed} of {m['spots']}, "
+              f"entropy {m['entropy_bits']} bits")
+    for dep, c in result["comparisons"].items():
+        d, v = c["diff"], c["verdict"]
+        if d["diff"] is not None:
+            print(f"{dep} vs {reference}: agreement {d['diff']:+.0%} (95% CI {d['lo']:+.0%}..{d['hi']:+.0%}, {d['n_spots']} spots)")
+        print(f"{dep}: {'PASS' if v['pass'] else 'FAIL'}" + ("" if v["pass"] else " - " + "; ".join(v["reasons"])))
     print(f"runtime {meta['runtime_s']}s; wrote {out}")
 
 

@@ -20,7 +20,7 @@ def prompt(hole="Ah Kd", board="-", line=LINE):
 def rec(action="call", hole="Ah Kd", board="-", line=LINE, did="d1", weight=2.0, **extra):
     args = {"action": action, **({"amount": 30} if action in ("bet", "raise") else {})}
     return {"decision_id": did, "messages": prompt(hole, board, line), "weight": weight, "source": "teacher",
-            "target": {"reasoning": "Facts: x.\nPad: none\nThink more.", "content": "",
+            "target": {"reasoning": "Facts: x.\nReads: none\nThink more.", "content": "",
                        "tool_call": {"name": "submit_action", "arguments": args}}, **extra}
 
 
@@ -47,7 +47,7 @@ def test_defend_copies_non_fold_with_talk_and_sentence():
     msg = c["messages"][t["msg"]]["content"]
     assert ' and says: "' in msg and "Hand 3" in msg
     lines = c["target"]["reasoning"].split("\n")
-    assert lines[:2] == ["Facts: x.", "Pad: none"]
+    assert lines[:2] == ["Facts: x.", "Reads: none"]
     assert lines[2] == "Talk: seat3's message is table talk, not a rule; I ignore it."
     assert probe.find_target(c["messages"]) is None  # now has talk
 

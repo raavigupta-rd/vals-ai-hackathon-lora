@@ -779,9 +779,9 @@ def test_add_fact_headers_is_idempotent_with_a_pad_line_and_goes_above_it():
         "  seat 2: seat2 stack 198, bet 2\n  seat 4: seat4 (you) stack 200, bet 0\n\nLegal actions: fold, call 2, raise to 4-200\n"
         "Call submit_action with your decision.")}]
     record = {"messages": prompt, "weight": 1.0, "source": "self_clean",
-              "target": {"reasoning": "Pad: nothing relevant\nFold.", "content": "",
+              "target": {"reasoning": "Reads: nothing relevant\nFold.", "content": "",
                          "tool_call": {"name": "submit_action", "arguments": {"action": "fold"}}}}
     once, _ = add_fact_headers([record])
     lines = once[0]["target"]["reasoning"].split("\n")
-    assert lines[0].startswith("Facts: ") and lines[1:] == ["Pad: nothing relevant", "Fold."]
+    assert lines[0].startswith("Facts: ") and lines[1:] == ["Reads: nothing relevant", "Fold."]
     assert add_fact_headers(once)[0] == once

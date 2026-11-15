@@ -223,8 +223,8 @@ def test_pad_read_line_keeps_survive_and_only_relevant_seat_lines():
     m = messages(hole="7h 2c")
     out, stats = add_pad_read_line([record(m, reasoning="Fold.")])
     head = out[0]["target"]["reasoning"].split("\n")[0]
-    assert head.startswith("Pad: > ") is False
-    assert head == ("Pad: survive: leading late, avoid big pots with marginal hands; "
+    assert head.startswith("Reads: > ") is False
+    assert head == ("Reads: survive: leading late, avoid big pots with marginal hands; "
                     "seat0 folds to raises (5/5): raise first-in and 3-bet light; seat1 is tight (VPIP 1/10): respect its raises; "
                     "seat5 calls a lot: value bet, do not bluff")
     assert out[0]["target"]["reasoning"].endswith("\nFold.") and stats["with_pad"] == 1
@@ -235,7 +235,7 @@ def test_pad_read_line_skips_every_folded_seat():
     pad_text = pad(10, lines=["> seat4 is tight (VPIP 1/10): respect its raises", "> seat5 calls a lot: value bet, do not bluff"])
     m = messages(hole="7h 2c", folded=(4, 5), events=["preflop: seat4 (seat 4) fold"], pad_text=pad_text)
     out, _ = add_pad_read_line([record(m, reasoning="Fold.")])
-    assert out[0]["target"]["reasoning"].split("\n")[0] == "Pad: nothing relevant"
+    assert out[0]["target"]["reasoning"].split("\n")[0] == "Reads: nothing relevant"
 
 
 def test_pad_read_line_steal_line_only_when_first_in_from_a_late_seat():
@@ -244,14 +244,14 @@ def test_pad_read_line_steal_line_only_when_first_in_from_a_late_seat():
     folds = ["preflop: seat0 (seat 0) fold"]
     co_first = messages(seat=1, position=3, button=2, hole="7h 2c", events=folds, folded=(0,), bets={4: 1, 5: 2}, pad_text=steal)
     out, _ = add_pad_read_line([record(co_first, reasoning="Fold.")])
-    assert out[0]["target"]["reasoning"].startswith("Pad: blinds fold to steals (5/5): open BTN/CO wide\n")
+    assert out[0]["target"]["reasoning"].startswith("Reads: blinds fold to steals (5/5): open BTN/CO wide\n")
     limped = messages(seat=1, position=3, button=2, hole="7h 2c", events=folds + ["preflop: seat2 (seat 2) call"], folded=(0,),
                       bets={4: 1, 5: 2, 2: 2}, pad_text=steal)
     out, _ = add_pad_read_line([record(limped, reasoning="Fold.")])
-    assert out[0]["target"]["reasoning"].startswith("Pad: nothing relevant\n")
+    assert out[0]["target"]["reasoning"].startswith("Reads: nothing relevant\n")
     utg = messages(seat=0, position=2, button=2, hole="7h 2c", bets={4: 1, 5: 2}, pad_text=steal)  # not a late seat
     out, _ = add_pad_read_line([record(utg, reasoning="Fold.")])
-    assert out[0]["target"]["reasoning"].startswith("Pad: nothing relevant\n")
+    assert out[0]["target"]["reasoning"].startswith("Reads: nothing relevant\n")
 
 
 def test_pad_read_line_skips_records_without_a_v2_pad_and_pad_records_and_is_idempotent():
@@ -271,7 +271,7 @@ def test_pad_read_line_goes_below_a_facts_line_and_fact_header_goes_above_it():
     padded, _ = add_pad_read_line([rec])
     headed, _ = add_fact_headers(padded)
     lines = headed[0]["target"]["reasoning"].split("\n")
-    assert lines[0].startswith("Facts: ") and lines[1].startswith("Pad: ") and lines[2] == "Fold."
+    assert lines[0].startswith("Facts: ") and lines[1].startswith("Reads: ") and lines[2] == "Fold."
     # the other order lands in the same place, and neither step repeats itself
     other, _ = add_pad_read_line(add_fact_headers([rec])[0])
     assert other[0]["target"]["reasoning"] == headed[0]["target"]["reasoning"]

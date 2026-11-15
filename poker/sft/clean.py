@@ -14,7 +14,7 @@ one filter per problem. A record is counted under the first filter (in the order
                     content; a pasted JSON submit_action in reasoning
     confusion       3 or more "wait" / "re-read" in an action reasoning
 
-add_pad_read_line(records) -> (records, stats) puts one line "Pad: ..." at the top of every action reasoning whose
+add_pad_read_line(records) -> (records, stats) puts one line "Reads: ..." at the top of every action reasoning whose
 prompt has a v2 pad (below a "Facts:" line when there is one). It keeps only the pad's exploit lines that matter for this
 decision: the survive line; the steal line when we are first in from CO, BTN or SB; a seat line when that seat is still in
 the hand or has acted in it. Everything is computed from the prompt alone.
@@ -219,7 +219,7 @@ def facts_seats(prompt: Prompt) -> list[tuple[int, str]]:
 
 
 def add_pad_read_line(records) -> tuple[list[dict], dict]:
-    """Insert "Pad: <relevant exploit lines joined by '; '>" (or "Pad: nothing relevant") as the first line of each action
+    """Insert "Reads: <relevant exploit lines joined by '; '>" (or "Reads: nothing relevant") as the first line of each action
     reasoning whose prompt has a v2 pad, below an existing "Facts:" line. Idempotent."""
     from poker.facts import compute_facts
 
@@ -231,7 +231,7 @@ def add_pad_read_line(records) -> tuple[list[dict], dict]:
             continue
         lines = (record["target"].get("reasoning") or "").split("\n")
         prompt = Prompt(record["messages"])
-        if any(line.startswith("Pad: ") for line in lines[:2]):
+        if any(line.startswith("Reads: ") for line in lines[:2]):
             stats["already"] += 1
         elif not prompt.v2_pad:
             stats["no_pad"] += 1
@@ -239,7 +239,7 @@ def add_pad_read_line(records) -> tuple[list[dict], dict]:
             picked = _relevant_pad_lines(prompt, compute_facts(record["messages"]))
             stats["with_pad"] += 1
             stats["relevant" if picked else "nothing"] += 1
-            line = "Pad: " + ("; ".join(picked) if picked else "nothing relevant")
+            line = "Reads: " + ("; ".join(picked) if picked else "nothing relevant")
             at = 1 if lines and lines[0].startswith("Facts: ") else 0
             record = record | {"target": record["target"] | {"reasoning": "\n".join(lines[:at] + [line] + lines[at:])}}
         out.append(record)

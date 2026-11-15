@@ -86,7 +86,7 @@ def _h(*parts) -> int:
 def _insert_after_header(reasoning: str, sentence: str) -> str:
     lines = (reasoning or "").split("\n")
     k = 0
-    while k < len(lines) and lines[k].startswith(("Facts:", "Pad:")):
+    while k < len(lines) and lines[k].startswith(("Facts:", "Reads:", "Pad:")):
         k += 1
     return "\n".join([*lines[:k], sentence, *lines[k:]])
 

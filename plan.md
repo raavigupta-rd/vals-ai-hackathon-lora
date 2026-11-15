@@ -39,6 +39,35 @@ Selection by Sunday 12:30 PM, final check/submission target 1:15 PM, and cutoff 
 | 4. Training loop | Placement-reward games, OPSD hints, simulated field. Train, eval against base, find leaks, repeat. | Sat night to Sun 12:30 PM |
 | 5. Final entry | Pick, check, submit by 1:15 PM (step 9f) | Sun |
 
+## Wave plan (Sat ~6:40 PM): README (1) merged with what the data showed
+
+`README (1).md` proposes parallel A/B training waves, cheap teacher-hint screening by re-rollouts, held-out
+match-level evaluation, and strict no-leakage supervision, following Applied Compute's hint auto-optimization study.
+We adopt that structure, with these corrections from our own measurements:
+
+| README (1) assumption | What we measured | Consequence |
+|---|---|---|
+| Scoring unknown; "avoid speculative survival weighting" | The event ranks by final place with busted seats last. In our arena DB, LLM seats that never bust average place 2.66; seats that bust average 5.02. Base busted in 32% of matches, mostly by calling preflop all-ins with weak hands. | Survival is the main lever, not speculation. Bust spots get 3x weight. |
+| Opponent identity may be visible | Prompts show only `seat0`..`seat5`. | Teacher ranges are field-level by default (`PER_OPPONENT = False`). Per-team exploitation can only come from in-game history the student sees (the scratchpad). |
+| OPSD is the training method | Online OPSD is ruled out for team orgs; offline OPSD and SFT are allowed. | SFT on validated re-rollouts is the main method; offline OPSD with validated hints is a wave-2 challenger. |
+| Screen hints by re-rollouts, keep only validated ones | Built: `poker/sft/resample.py` keeps a reply only if the teacher's verdict confirms it; a private hint is added when plain samples fail; unvalidated fixed sentences are dropped. 156 of 176 v3 corrections validated. | Matches the article's filtering result. |
+| Deterministic labels are risky | Gate measures mixing on non-judged spots and fails a candidate below 60% of the reference. | Corrections are deterministic only where they should be (bust spots); elsewhere the policy keeps mixing. |
+| Evaluate by match-level aggregates | The gate replays real prompts (spot-level bootstrap). | Add a per-submission mean-place report with a match-level bootstrap from the arena DB. |
+
+Waves (each launched as two 4-GPU SFT/OPSD runs when there is a real A/B question; otherwise one run)
+
+| Wave | Slot A | Slot B | Question |
+|---|---|---|---|
+| 1 (running) | c2a: teacher v2 (pot odds, all-in and postflop equity), own-words corrections | c2b: teacher v3 (adds six-max preflop structure, facing-raise and own-shove rules), validated corrections only, field-level ranges | Does preflop structure cut busts? (Not a single-factor test; both start from `sft-c1-s10`.) |
+| 2 | Winner of wave 1, SFT on validated re-rollouts | Same decisions as offline OPSD, with the validated hint as teacher-only context | SFT vs OPSD on identical data |
+| 3 | Field-level teacher | Field-level teacher plus in-game, scratchpad-visible opponent behavior in the hint | Does realizable opponent adaptation help? |
+| 4 | Uniform on-policy data | Upweighted high-regret spots (bust risk, big pots) with a coverage floor | Data selection |
+| Later, only with time | `say` ablation (neutral vs poker-relevant talk) | – | Only if it shows causal lift. We skip impersonating system or evaluator notices: it is a likely rule problem, and the arena marks talk as unverified anyway. |
+
+Every wave: same parent checkpoint for both slots, gate against the current entry (validity within 1 point,
+agreement not clearly worse, mixing kept), `play_local --opponents bots`, then A submits the winner. Final pick by
+Sunday 12:30 PM PST from repeated evidence, not the newest checkpoint.
+
 ## The iteration cycle (decided Sat ~4:15 PM)
 
 Decisions from the user: the organizers confirmed we may use AC2 SFT (`SFTConfig`). Submissions go through the AC2

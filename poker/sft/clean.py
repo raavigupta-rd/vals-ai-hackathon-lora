@@ -47,7 +47,8 @@ FILTERS = ("no_v2_pad", "pad_restart", "pad_game_over", "suitedness", "illegal",
            "confusion")
 STRICT_FILTERS = ("tool_text", "junk_text", "conclusion_mismatch", "short_body", "long_body", "has_say")
 MIN_BODY, MAX_BODY, CONCLUSION_TAIL = 120, 2600, 250
-_JUNK_TEXT = re.compile(r"[^\x00-\x7f]|</?thinking>")
+# CJK, Hangul, Cyrillic and box-drawing fragments, and think tags. Card suit symbols, dashes and quotes are fine.
+_JUNK_TEXT = re.compile(r"[\u3000-\u9fff\uac00-\ud7af\u0400-\u04ff\u2500-\u257f\uff00-\uffef]|</?thinking>")
 
 _HAND = re.compile(r"^## Hand (\d+) of (\d+)", re.M)
 _HAND_OVER = re.compile(r"^## Hand (\d+) is over", re.M)

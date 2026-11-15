@@ -425,8 +425,9 @@ def test_strict_drops_non_ascii_and_think_tags():
     ok = record(m, reasoning=body + "Fold.")
     cjk = record(m, reasoning=body + "弃牌是标准操作。Fold.")
     tag = record(m, reasoning=body + "</thinking> Fold.")
-    out, stats = clean([ok, cjk, tag], strict=True)
-    assert out == [ok] and dropped(stats, "junk_text") == 2
+    suits = record(m, reasoning=body + "I hold 7\u2665 2\u2663 \u2014 a fold.")
+    out, stats = clean([ok, cjk, tag, suits], strict=True)
+    assert out == [ok, suits] and dropped(stats, "junk_text") == 2
 
 
 def test_strip_model_headers_removes_the_models_own_header_lines():

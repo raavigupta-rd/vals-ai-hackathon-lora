@@ -87,3 +87,62 @@ def test_deterministic() -> None:
     again = T.build_all()
     for k in BUILT:
         assert [(t.env_params, t.grader_params) for t in again[k]] == [(t.env_params, t.grader_params) for t in BUILT[k]]
+
+
+PAD_SPOTS = T.pad_spot_tasks(200, control_share=0.25)
+
+
+def test_pad_spots_are_spot_tasks_with_a_seeded_pad() -> None:
+    assert len(PAD_SPOTS) == 200
+    for t in PAD_SPOTS:
+        p = t.env_params
+        assert p["preset"] == "event" and p["total_hands"] == 1 and len(p["policy_seats"]) == 1
+        assert t.grader_params["reward"] == "spot" and "scratchpad_init" in p
+        seat = p["policy_seats"][0]
+        assert T.screened(p["seed"], seat)
+
+
+def test_pad_spot_control_share_has_empty_pads() -> None:
+    empty = [t for t in PAD_SPOTS if t.env_params["scratchpad_init"] == ""]
+    assert len(empty) == 50
+    assert len([t for t in T.pad_spot_tasks(10, control_share=0.0) if t.env_params["scratchpad_init"] == ""]) == 0
+
+
+def test_pad_describes_each_bot_truthfully() -> None:
+    from poker.pad.writer import parse_pad
+
+    seen = set()
+    for t in PAD_SPOTS:
+        pad = t.env_params["scratchpad_init"]
+        if not pad:
+            continue
+        p = t.env_params
+        me = p["policy_seats"][0]
+        others = [i for i in range(6) if i != me]
+        assert pad.splitlines()[0].startswith("H") and f"me seat{me} " in pad.splitlines()[0]
+        assert len(pad) <= 1500
+        for seat, kind in zip(others, p["opponent_bots"], strict=True):
+            (line,) = [ln for ln in pad.splitlines() if ln.startswith(f"seat{seat}:")]
+            vp = line.split("VPIP ")[1].split(" |")[0]
+            a, b = (int(x) for x in vp.split("/"))
+            raises = int(line.split("raises ")[1].split(" ")[0])
+            seen.add(kind)
+            if kind == "nit":
+                assert a / b <= 0.2 and raises <= 1 and "shoves" not in line
+            elif kind == "calling_station":
+                assert a / b >= 0.7 and raises == 0
+            elif kind == "maniac":
+                assert a / b >= 0.6 and raises >= 4
+            elif kind == "shover":  # only writer-schema fields: a shover reads as very loose with many raises
+                assert a / b >= 0.6 and raises >= 2 and "shoves" not in line
+        assert parse_pad(pad) is not None
+    assert {"nit", "calling_station", "maniac", "shover"} <= seen
+
+
+def test_pad_spots_deterministic_and_seed_disjoint() -> None:
+    again = T.pad_spot_tasks(200, control_share=0.25)
+    assert [t.env_params for t in again] == [t.env_params for t in PAD_SPOTS]
+    seeds = {t.env_params["seed"] for t in PAD_SPOTS}
+    assert len(seeds) == 200
+    others = {t.env_params["seed"] for ts in BUILT.values() for t in ts}
+    assert not seeds & (others | _starter_seeds())

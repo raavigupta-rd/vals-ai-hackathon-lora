@@ -210,6 +210,35 @@ def _opponent_bots(params: dict[str, Any], seats: int, policy: set[int]) -> dict
     return dict(zip(others, names, strict=True))
 
 
+def _scratchpad_init(params: dict[str, Any], seats: int, policy: set[int]) -> dict[int, str]:
+    """`env_params.scratchpad_init` (opt-in, training tasks): a string for every policy seat, or a dict seat -> contents.
+    Each value must fit `scratchpad_chars`. Applied only at scratchpad tables (`ModelSeat` ignores it otherwise)."""
+    init = params.get("scratchpad_init")
+    if init is None:
+        return {}
+    limit = int(params.get("scratchpad_chars", 5000))
+    if isinstance(init, str):
+        init = {i: init for i in sorted(policy)}
+    if not isinstance(init, dict):
+        raise ValueError(f"scratchpad_init must be a string or a dict of seat -> string, got {type(init).__name__}")
+    out: dict[int, str] = {}
+    for key, contents in init.items():
+        if isinstance(key, bool):
+            raise ValueError(f"scratchpad_init key {key!r} is not a seat number")
+        try:
+            seat = int(key)
+        except (TypeError, ValueError):
+            raise ValueError(f"scratchpad_init key {key!r} is not a seat number") from None
+        if not 0 <= seat < seats:
+            raise ValueError(f"scratchpad_init seat {seat} is outside 0-{seats - 1}")
+        if not isinstance(contents, str):
+            raise ValueError(f"scratchpad_init for seat {seat} must be a string")
+        if len(contents) > limit:
+            raise ValueError(f"scratchpad_init for seat {seat} is {len(contents)} characters; the limit is {limit}")
+        out[seat] = contents
+    return out
+
+
 def create_app(
     relay_transport: httpx.AsyncBaseTransport | None = None,
     runs_dir: Path | None = None,
@@ -252,6 +281,7 @@ def create_app(
             seats = int(params.get("seats", 10))
             policy = {int(i) for i in params.get("policy_seats", range(seats))}
             bots = _opponent_bots(params, seats, policy)
+            pads = _scratchpad_init(params, seats, policy)
             if params.get("opponent_model") and not bots and not opponent_key and len(policy) < seats:
                 raise RuntimeError("opponent seats need POKER_OPPONENT_API_KEY or AC2_API_KEY in the harness environment")
             decision_timeout = float(params.get("decision_timeout_seconds", DEFAULT_DECISION_TIMEOUT_SECONDS))
@@ -286,6 +316,7 @@ def create_app(
                         model="ac2/policy" if i in policy else f"opponent/{params.get('opponent_model', 'policy')}",
                         timeout_seconds=decision_timeout if i in policy else opponent_timeout,
                         cleanup_complete=policy_cleanup if i in policy else opponent_cleanup,
+                        initial_scratchpad=pads.get(i, ""),
                     )
                     for i in range(seats)
                 ]

@@ -21,11 +21,13 @@ from poker_harness.engine.scripted import ARCHETYPES  # noqa: E402
 from poker_harness.spots import chen_score, hole_cards  # noqa: E402
 
 from poker.game_tasks import game_datasets  # noqa: E402
+from poker.pad.writer import Opp, PadState, render  # noqa: E402
 from vals_tools.tasks import SEATS, SPLITS, TABLE_RULES, Opponents, datasets  # noqa: E402
 
-__all__ = ["ARCHETYPES", "COUNTS", "MIN_CHEN", "build_all", "chen_score", "hole_cards", "screened"]
+__all__ = ["ARCHETYPES", "COUNTS", "MIN_CHEN", "build_all", "chen_score", "hole_cards", "pad_spot_tasks", "screened"]
 
 COUNTS = {"spot": 1200, "shove": 400, "short_game": 300, "cleanup": 150}
+PAD_SPOT_BASE_SEED = 8_850_005
 BASE_SEEDS = {"spot": 8_810_001, "shove": 8_820_002, "short_game": 8_830_003, "cleanup": 8_840_004}
 
 # Seat 0 = SB, 1 = BB, 2 = UTG, 3 = HJ, 4 = CO, 5 = BTN (the button starts on the last seat). Minimum Chen score for
@@ -154,3 +156,59 @@ def build_all() -> dict[str, list[Task]]:
         "short_game": _make("short_game", used, _game_bots, lambda r: r.randint(6, 10), GAME_PARAMS, _game, MIN_CHEN_GAME, True),
         "cleanup": _make("cleanup", used, _cleanup_bots, lambda r: r.randint(3, 5), CLEANUP_PARAMS, _game, None, False),
     }
+
+
+def _bot_stats(rng: random.Random, kind: str, n: int) -> tuple[int, int, int | None]:
+    """(VPIP hands, raises, shoves or None) a scripted archetype would show over `n` observed hands."""
+    if kind == "nit":
+        va = rng.randint(0, 1)
+        return va, rng.randint(0, va), None
+    if kind == "calling_station":
+        return n - rng.randint(0, 1), 0, None
+    if kind == "maniac":
+        va = n - rng.randint(0, 2)
+        return va, rng.randint(5, min(8, va)), None
+    if kind == "shover":
+        shoves = rng.randint(2, 5)
+        return n - rng.randint(0, 1), shoves + rng.randint(0, 2), shoves
+    va = round(n * rng.uniform(0.4, 0.6))  # random
+    return va, rng.randint(1, min(3, va)), None
+
+
+def _seeded_pad(rng: random.Random, seat: int, bots: list[str]) -> str:
+    """A pad in the exact writer schema (poker/pad/writer.py) that describes the scripted bots truthfully: shovers
+    show as very high VPIP with many raises, nits as low VPIP. No fields the real writer never produces, so what the
+    policy learns to read here matches what it will see in real games. Stacks are the real hand-1 stacks."""
+    n = rng.randint(8, 12)
+    start = 200  # event starting stack
+    opps: dict[int, Opp] = {}
+    for other, kind in zip((i for i in range(SEATS) if i != seat), bots, strict=True):
+        va, raises, _ = _bot_stats(rng, kind, n)
+        opps[other] = Opp(start, va, n, raises)
+    return render(PadState(n, 30, seat, start, opps, {}))
+
+
+def pad_spot_tasks(count: int = 600, control_share: float = 0.25) -> list[Task]:
+    """Single-hand spots (reward "spot") vs scripted bots whose seeded pad (`env_params.scratchpad_init`) describes
+    them truthfully. A `control_share` of the tasks gets an empty pad, so the group learns what the notes are worth.
+    Seeds are disjoint from the starter splits, game tasks and `build_all`."""
+    used = _reserved_seeds() | {t.env_params["seed"] for ts in build_all().values() for t in ts}
+    rng = random.Random(PAD_SPOT_BASE_SEED)
+    controls = set(random.Random(PAD_SPOT_BASE_SEED + 1).sample(range(count), round(count * control_share)))
+    out: list[Task] = []
+    while len(out) < count:
+        seat = len(out) % SEATS
+        seed = rng.getrandbits(48)
+        if seed in used or not screened(seed, seat):
+            continue
+        used.add(seed)
+        bots = _spot_bots(rng, seat)
+        pad = _seeded_pad(rng, seat, bots)
+        out.append(
+            Task(
+                input=[Message(role="user", content=_one_hand(seat, 1))],
+                env_params=_env(seed, seat, 1, bots, ev_labels=True, ev_runouts=128, scratchpad_init="" if len(out) in controls else pad),
+                grader_params=dict(SPOT_PARAMS),
+            )
+        )
+    return out

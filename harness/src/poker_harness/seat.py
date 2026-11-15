@@ -102,6 +102,7 @@ class ModelSeat:
     model: str | None = None
     timeout_seconds: float | None = None
     cleanup_complete: Complete | None = None  # the after-hand turn's caller (its own token cap); default `complete`
+    initial_scratchpad: str = ""  # training tasks only (`env_params.scratchpad_init`); used at scratchpad tables
     turn: int = field(default=0, init=False)
     messages: list[Message] = field(default_factory=list, init=False)
     _hand: int | None = field(default=None, init=False)
@@ -112,6 +113,10 @@ class ModelSeat:
     _hand_info: dict[str, Any] = field(default_factory=dict, init=False)
     _private_messages: set[int] = field(default_factory=set, init=False)  # indexes into `messages`
     _recaps: list[str] = field(default_factory=list, init=False)  # finished hands' rest, for the next hand's opening
+
+    def __post_init__(self) -> None:
+        if self.rules.scratchpad:
+            self.scratchpad = self.initial_scratchpad
 
     def begin_hand(self, info: dict[str, Any]) -> None:
         """Called by `play_session` before each hand: number, blinds, orbit and stacks."""

@@ -535,6 +535,8 @@ def main() -> None:
     parser.add_argument("--rewrite-pads-strict", action="store_true",
                         help="implies --rewrite-pads; also drops action records whose pad could not be rewritten when they "
                              "carry a pad-dependent correction (rule pad_read), and reports rewritten/kept/dropped")
+    parser.add_argument("--pad-version", type=int, choices=(1, 2), default=1,
+                        help="writer version for --rewrite-pads: 2 = head-heavy exploit pad (poker/pad/writer.py)")
     parser.add_argument("--fact-header", action="store_true",
                         help="prepend a code-computed 'Facts: position, hand, board, made hand, price, stack, rank' line "
                              "(poker/facts.py) to every action-turn target reasoning")
@@ -613,7 +615,7 @@ def main() -> None:
         from poker.pad.rewrite import rewrite_records
 
         strict = {r["span_id"] for r, v, _ in rows if v.get("rule") == "pad_read"} if args.rewrite_pads_strict else set()
-        records, rewrite_stats = rewrite_records(records, matches, index, strict_ids=strict)
+        records, rewrite_stats = rewrite_records(records, matches, index, strict_ids=strict, version=args.pad_version)
         stats["pad_rewrite"] = rewrite_stats
     if args.drop_hallucinated:
         records, stats["hallucination"] = drop_hallucinated(records)

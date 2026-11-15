@@ -714,3 +714,24 @@ def test_hallucination_drop_sources_include_resampled():
     from poker.sft.make_records import HALLUCINATION_DROP_SOURCES
 
     assert "teacher_resampled" in HALLUCINATION_DROP_SOURCES
+
+
+def test_rewrite_pads_passes_the_pad_version(monkeypatch, tmp_path):
+    import sys
+
+    from poker.pad import rewrite
+    from poker.sft import make_records
+
+    seen = {}
+    monkeypatch.setattr(make_records, "select", lambda rows, **kw: ([], {}))
+    monkeypatch.setattr(rewrite, "rewrite_records", lambda records, *a, version=1, **kw: seen.update(version=version) or (records, {}))
+    p = tmp_path / "j.jsonl"
+    p.write_text("")
+    base = ["x", "--joined", str(p), "--db", str(tmp_path / "a.db"), "--cycle", "1", "--out", str(tmp_path / "o.jsonl"),
+            "--rewrite-pads"]
+    monkeypatch.setattr(sys, "argv", base)
+    make_records.main()
+    assert seen["version"] == 1
+    monkeypatch.setattr(sys, "argv", base + ["--pad-version", "2"])
+    make_records.main()
+    assert seen["version"] == 2

@@ -100,6 +100,21 @@ Vals Staff has one submission: 7 matches, places 3,1,2,3,3,3,3 (mean 2.57), zero
 
 The busts start before the all-in call: our oversized 3-bets build pots that end in stack-offs. Vals keeps pots small and so rarely faces an all-in. Changes in progress: a teacher `oversize` rule that corrects non-all-in preflop raises above a standard size (open 3.5 BB plus 1 BB per limper, 3-bet 3x, 4-bet 2.3x), and silent targets (no `say` in any training target).
 
+## LLM trace study of the winners (Sat ~11 PM): simple rules first
+
+41 Claude agents read the hands of Vals, Friends v2 and Accord, then our base and c2b hands; every proposed rule was checked against the arena DB (LLM-team seats only).
+
+Playbook of the winners: fold 70-90% preflop but open or steal every unopened pot from HJ/CO/BTN/SB with a decent range at a small fixed size (2.5-3 BB, never above 4 BB); fold to 3-bets, squeezes, big raises and all-ins without QQ+/AK; build big pots only with KK/AA; one small c-bet, then give up without a pair; fold quickly without a pair or real draw; value-bet monsters at 55-75% pot; survive.
+
+The Vals creator's advice, checked: "don't call overly large preflop bets" is strongly supported (a handful of big preflop calls cost us most of our chips). "Don't fold too much preflop" holds only in the sense of WHAT we fold: we limp or fold steal hands and steal too rarely. Defending cheap raises more is refuted: we already continue 36% of cheap raises against 17% for the winners, at -11 chips per defend.
+
+Teacher v6 tier 1 (built behind flags; `make_records --simple` uses only these plus free_fold):
+- big_price_fold: preflop to_call > 12 BB, > 20% of stack, or facing an all-in: fold all but TT+/AK/AQs (all-in or > 40% of stack: JJ+/AK).
+- raise_first_in: folded to us in CO/BTN/SB with about 36% of hands: raise to 5-6 chips (+2 per limper, cap 8), never open-limp.
+- one_pair_pot_cap: one pair or less: fold to bets over pot and to flop/turn raises; never commit more than half the stack with one pair.
+- monster_value: sets, straights, flushes and better: never fold to a bet up to pot; bet about 60% pot when checked to.
+Tier 2 later: c-bet sizing 0.4-0.75 pot, draw calls against small bets with a stack guard, value sizing.
+
 ## The iteration cycle (decided Sat ~4:15 PM)
 
 Decisions from the user: the organizers confirmed we may use AC2 SFT (`SFTConfig`). Submissions go through the AC2

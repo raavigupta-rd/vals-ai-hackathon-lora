@@ -74,3 +74,14 @@ def test_pick_shortest_passes_max_amount_through():
     samples = [response("raise", amount=12, reasoning="s"), response("raise", amount=6, reasoning="longer reply")]
     picked = pick_shortest(PROMPT, samples, preferred="raise", validate=lambda p, r: True, max_amount=7)
     assert picked["arguments"]["amount"] == 6
+
+
+def test_pick_reply_with_a_min_target_rejects_min_raise_opens_and_non_raises():
+    samples = [response("raise", amount=4), response("call"), response("raise", amount=6)]
+    picked = pick_reply(PROMPT, samples, preferred="raise", validate=lambda p, r: True, max_amount=6, min_target=5)
+    assert picked["arguments"]["amount"] == 6
+    assert pick_reply(PROMPT, [response("raise", amount=4)], preferred="raise", validate=lambda p, r: True,
+                      max_amount=6, min_target=5) is None
+    assert pick_reply(PROMPT, [response("raise", amount=4)], preferred="raise", validate=lambda p, r: True)  # no floor: as before
+    assert pick_shortest(PROMPT, [response("raise", amount=4)], preferred="raise", validate=lambda p, r: True,
+                         max_amount=6, min_target=5) is None

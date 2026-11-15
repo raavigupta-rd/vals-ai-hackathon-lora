@@ -807,7 +807,7 @@ def test_add_fact_headers_facts_v2_flag():
 
     out, stats = add_fact_headers([_c8_record()], facts_v2=True)
     first = out[0]["target"]["reasoning"].split("\n")[0]
-    assert first.startswith("Facts: pos ") and "(0=SB)" in first and "legal fold | call 2 | raise to 4-200" in first
+    assert first.startswith("Facts: pos ") and "(0=SB, 1=BB)" in first and "legal fold | call 2 | raise to 4-200" in first
     assert out[0]["target"]["reasoning"].endswith(BODY) and stats["headed"] == 1
 
 

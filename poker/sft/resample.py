@@ -55,10 +55,11 @@ def _legal_min(prompt) -> int | None:
     return int(found[-1]) if found else None
 
 
-def pick_reply(prompt, samples, *, preferred: str, validate=_valid_by_gate, max_amount=None) -> dict | None:
+def pick_reply(prompt, samples, *, preferred: str, validate=_valid_by_gate, max_amount=None,
+               min_target=None) -> dict | None:
     """First sample whose single submit_action call chooses `preferred`, is valid, not cut off, and short enough.
     With `max_amount` (a verdict's target_amount) the call must also be a raise or bet of at most that amount and
-    at least the legal minimum."""
+    at least the legal minimum. `min_target` (a verdict's floor, e.g. no min-raise opens) sets a lower bound on that amount."""
     for response in samples:
         choice = (response.get("choices") or [{}])[0]
         message = choice.get("message") or {}
@@ -80,16 +81,22 @@ def pick_reply(prompt, samples, *, preferred: str, validate=_valid_by_gate, max_
                 if (action not in ("bet", "raise") or not isinstance(amount, (int, float)) or amount > max_amount
                         or (low is not None and amount < low)):
                     continue
+            if min_target is not None:
+                amount = args.get("amount")
+                if action not in ("bet", "raise") or not isinstance(amount, (int, float)) or amount < min_target:
+                    continue
             if action not in ("bet", "raise"):
                 args = {k: v for k, v in args.items() if k != "amount"}
             return {"reasoning": reasoning, "content": message.get("content") or "", "arguments": args}
     return None
 
 
-def pick_shortest(prompt, samples, *, preferred: str, validate=_valid_by_gate, max_amount=None) -> dict | None:
+def pick_shortest(prompt, samples, *, preferred: str, validate=_valid_by_gate, max_amount=None,
+                  min_target=None) -> dict | None:
     """Among all samples that pass pick_reply's checks, the one with the shortest reasoning. Teams that improved
     on the arena ladder moved to short, decisive replies; picking the shortest valid target teaches brevity."""
-    picks = [p for s in samples if (p := pick_reply(prompt, [s], preferred=preferred, validate=validate, max_amount=max_amount))]
+    picks = [p for s in samples if (p := pick_reply(prompt, [s], preferred=preferred, validate=validate, max_amount=max_amount,
+                                                  min_target=min_target))]
     return min(picks, key=lambda p: len(p["reasoning"])) if picks else None
 
 
@@ -129,18 +136,19 @@ def main() -> None:
         record, verdict = entry["record"], entry["verdict"]
         preferred = verdict["preferred"]
         cap = verdict.get("target_amount")
+        floor = verdict.get("min_target")
         messages = chat_messages(record["messages"])
         tries = 0
         if args.shortest:
             drawn = [client.complete(args.deployment, messages, tools) for _ in range(args.samples)]
             tries = len(drawn)
-            picked = pick_shortest(record["messages"], drawn, preferred=preferred, max_amount=cap)
+            picked = pick_shortest(record["messages"], drawn, preferred=preferred, max_amount=cap, min_target=floor)
             if picked:
                 return record["span_id"], preferred, picked | {"hinted": False}, tries
         for _ in range(0 if args.shortest else args.samples):
             tries += 1
             picked = pick_reply(record["messages"], [client.complete(args.deployment, messages, tools)], preferred=preferred,
-                               max_amount=cap)
+                               max_amount=cap, min_target=floor)
             if picked:
                 return record["span_id"], preferred, picked | {"hinted": False}, tries
         try:
@@ -151,7 +159,7 @@ def main() -> None:
         for _ in range(args.hinted_samples):
             tries += 1
             picked = pick_reply(record["messages"], [client.complete(args.deployment, teacher, tools)], preferred=preferred,
-                               max_amount=cap)
+                               max_amount=cap, min_target=floor)
             if picked:
                 return record["span_id"], preferred, picked | {"hinted": True}, tries
         return record["span_id"], preferred, None, tries

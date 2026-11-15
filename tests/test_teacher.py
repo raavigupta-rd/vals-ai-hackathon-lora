@@ -1140,9 +1140,9 @@ def test_v7_rules_are_off_by_default():
 
 def test_rfi_gto_raises_in_range_hands_instead_of_folding_or_limping(exploits):
     exploits("rfi_gto")
-    cases = ((3, ["Ah", "Qh"], 5), (3, ["4h", "4d"], 5), (4, ["6h", "6d"], 5), (4, ["Qh", "Jd"], 5),
-             (5, ["8h", "7h"], 5), (5, ["Kh", "6h"], 5), (0, ["Kh", "8d"], 5), (0, ["5h", "3h"], 5),
-             (1, ["Ah", "2d"], 6), (1, ["Qh", "5h"], 6))
+    cases = ((3, ["Ah", "Qh"], 6), (3, ["4h", "4d"], 6), (4, ["6h", "6d"], 6), (4, ["Qh", "Jd"], 6),
+             (5, ["8h", "7h"], 6), (5, ["Kh", "6h"], 6), (0, ["Kh", "8d"], 6), (0, ["5h", "3h"], 6),
+             (1, ["Ah", "2d"], 7), (1, ["Qh", "5h"], 7))
     for seat, cards, size in cases:
         for action in ("fold", "call"):
             v = _rfi(seat, cards, action)
@@ -1681,8 +1681,8 @@ def test_facing_open_tight_is_off_by_default_and_listed():
 # ---- rfi_gto: open sizes ----
 def test_rfi_gto_cuts_back_oversized_first_in_raises(exploits):
     exploits("rfi_gto")
-    for seat, cards, amount, size in ((5, ["Ah", "Qh"], 8, 5), (3, ["Ah", "Kh"], 7, 5), (1, ["Ah", "2d"], 8, 6),
-                                      (0, ["Kh", "8d"], 12, 5), (5, ["Ah", "Qh"], 200, 5)):
+    for seat, cards, amount, size in ((5, ["Ah", "Qh"], 8, 6), (3, ["Ah", "Kh"], 7, 6), (1, ["Ah", "2d"], 8, 7),
+                                      (0, ["Kh", "8d"], 12, 6), (5, ["Ah", "Qh"], 200, 6)):
         v = _rfi(seat, cards, "raise", amount)
         assert (v["rule"], v["preferred"], v["agree"], v["target_amount"]) == ("rfi_gto", "raise", False, size), (seat, amount)
         assert v["oversize"] and agrees(v, "raise", size) and not agrees(v, "raise", amount)
@@ -1704,8 +1704,8 @@ def test_rfi_gto_small_blind_complete(exploits):
     exploits("rfi_gto")
     out = _rfi(1, ["7h", "2d"], "call")  # completing with trash
     assert (out["rule"], out["preferred"]) == ("rfi_gto", "fold")
-    inn = _rfi(1, ["Kh", "9h"], "call")  # completing with a chart hand: raise to 6
-    assert (inn["rule"], inn["preferred"], inn["target_amount"]) == ("rfi_gto", "raise", 6)
+    inn = _rfi(1, ["Kh", "9h"], "call")  # completing with a chart hand: raise to 7
+    assert (inn["rule"], inn["preferred"], inn["target_amount"]) == ("rfi_gto", "raise", 7)
 
 
 def test_v7_texts_for_the_new_rules_use_plain_poker_words():
@@ -1715,3 +1715,15 @@ def test_v7_texts_for_the_new_rules_use_plain_poker_words():
     for text in texts:
         assert text.strip().endswith(("Fold.", "Raise to 5."))
         assert not any(w in text.lower() for w in ("percent", "%", "data", "field", "sample", "team"))
+
+
+def test_rfi_gto_open_size_is_three_big_blinds_and_a_min_raise_no_longer_agrees(exploits):
+    exploits("rfi_gto")
+    assert _t.RFI_SIZE == {"UTG": 6, "HJ": 6, "CO": 6, "BTN": 6, "SB": 7}
+    for seat, size in ((5, 6), (1, 7)):
+        v = _rfi(seat, ["Ah", "Qh"], "fold")
+        assert v["target_amount"] == size and v["min_target"] == _t.RFI_MIN_OPEN == 5
+        assert agrees(v, "raise", size) and agrees(v, "raise", 5)
+        assert not agrees(v, "raise", 4) and not agrees(v, "raise", 4, min_amount=4) and not agrees(v, "raise", size + 1)
+    # verdicts without a floor keep the old behaviour
+    assert agrees({"preferred": "raise", "target_amount": 7}, "raise", 4, min_amount=4)

@@ -359,7 +359,7 @@ def test_facts_v2_line_copies_prompt_fields():
     table = ring([200, 200, 200, 210, 200, 190], button=3, hero=3, bets={4: 1, 5: 2})
     msgs = prompt(seat=3, position=5, hole="Ah Jh", pot=3, table=table, legal="fold, call 2, raise to 4-210", hand=12)
     line = fact_line_v2(msgs)
-    assert line == ("Facts: pos 5 of 6 (0=SB), Ah Jh (AJs), board -, no made hand, pot 3, call 2 (40%), "
+    assert line == ("Facts: pos 5 of 6 (0=SB, 1=BB), Ah Jh (AJs), board -, no made hand, pot 3, call 2 (40%), "
                     "legal fold | call 2 | raise to 4-210, stack 105 BB, hand 12/30.")
     assert render_facts_v2(compute_facts(msgs)) == line
     assert "BTN" not in line and "rank" not in line and "behind" not in line
@@ -372,7 +372,7 @@ def test_facts_v2_no_bet_and_board_and_dead_seats():
     msgs = prompt(seat=4, position=0, street="flop", hole="Ah Kd", board="Ks 7d 2c", pot=12, table=table,
                   legal="check, bet to 2-197", hand=3)
     line = fact_line_v2(msgs)
-    assert line.startswith("Facts: pos 0 of 5 (0=SB), Ah Kd (AKo), board Ks 7d 2c, top pair, pot 12, no bet, legal check | bet to 2-197, ")
+    assert line.startswith("Facts: pos 0 of 5 (0=SB, 1=BB), Ah Kd (AKo), board Ks 7d 2c, top pair, pot 12, no bet, legal check | bet to 2-197, ")
     assert line.endswith("stack 98 BB, hand 3/30.")
 
 

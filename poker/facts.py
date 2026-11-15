@@ -208,13 +208,13 @@ def render_facts(f: dict) -> str:
 
 def render_facts_v2(f: dict) -> str:
     """Facts v2: only fields the model can copy from the prompt or compute trivially. No rank, gap, position name or
-    seats behind. "Facts: pos P of N (0=SB), c1 c2 (class), board ..., made, pot X, call Y (Z%) | no bet,
+    seats behind. "Facts: pos P of N (0=SB, 1=BB), c1 c2 (class), board ..., made, pot X, call Y (Z%) | no bet,
     legal <as listed, joined with ' | '>, stack S BB, hand H/30." """
     made = f["made"] or "no made hand"
     if f["draw"]:
         made += f", {f['draw']['name']} {f['draw']['outs']} outs"
     price = f"call {f['to_call']:g} ({f['required']:.0%})" if f["to_call"] > 0 else "no bet"
-    parts = [f"pos {f['pos_num']} of {f['n_live']} (0=SB)", f"{' '.join(f['hole'])} ({f['hole_code']})",
+    parts = [f"pos {f['pos_num']} of {f['n_live']} (0=SB, 1=BB)", f"{' '.join(f['hole'])} ({f['hole_code']})",
              f"board {' '.join(f['board']) or '-'}", made, f"pot {f['pot']}", price]
     if f.get("legal"):
         parts.append("legal " + " | ".join(a.strip() for a in f["legal"].split(",")))

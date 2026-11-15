@@ -992,7 +992,8 @@ RFI_GTO = {
     "BTN": "22+ A2s+ K2s+ Q4s+ J6s+ T6s+ 96s+ 85s+ 75s+ 64s+ 53s+ 43s A2o+ K8o+ Q9o+ J9o+ T9o 98o",
     "SB": "22+ A2s+ K2s+ Q5s+ J7s+ T7s+ 97s+ 86s+ 76s 65s 54s A2o+ K8o+ Q9o+ J9o+ T9o",
 }
-RFI_SIZE = {"UTG": 5, "HJ": 5, "CO": 5, "BTN": 5, "SB": 6}
+RFI_SIZE = {"UTG": 6, "HJ": 6, "CO": 6, "BTN": 6, "SB": 7}  # 3 BB (BB = 2 chips); 3.5 BB from the SB
+RFI_MIN_OPEN = 5  # a first-in raise below this (a min-raise is 4) no longer agrees with an rfi_gto verdict
 ISO_RANGE = "22+ A2s+ KTs+ QJs JTs AJo+ KQo"
 ISO_BASE, ISO_PER_LIMPER = 4, 2
 THREE_BET_VALUE = {"UTG": "QQ+ AKs AKo", "HJ": "QQ+ AKs AKo", "CO": "JJ+ AQs+ AKo",
@@ -1047,9 +1048,9 @@ def _rfi_gto(row, before, raises, stack0, verdict) -> dict | None:
         allin_short = row["stack_after"] == 0 and (row["effective_stack"] or stack0) / 2 < RFI_ALLIN_BB
         if allin_short or (row["amount"] or 0) <= RFI_MAX_OPEN.get(position, RFI_MAX_OPEN_DEFAULT):
             return None
-        return _v7_verdict(verdict, "rfi_gto", "raise", target_amount=RFI_SIZE[position], oversize=True)
+        return _v7_verdict(verdict, "rfi_gto", "raise", target_amount=RFI_SIZE[position], min_target=RFI_MIN_OPEN, oversize=True)
     if in_range(code, RFI_GTO[position]):
-        return _v7_verdict(verdict, "rfi_gto", "raise", target_amount=RFI_SIZE[position])
+        return _v7_verdict(verdict, "rfi_gto", "raise", target_amount=RFI_SIZE[position], min_target=RFI_MIN_OPEN)
     return _v7_verdict(verdict, "rfi_gto", "fold")
 
 
@@ -1324,7 +1325,8 @@ V7_PREFLOP = (("rfi_gto", _rfi_gto), ("iso_raise", _iso_raise), ("three_bet", _t
 
 def agrees(verdict: dict, action: str, amount=None, *, min_amount=None) -> bool:
     """Whether a (re)played action matches the verdict. With a `target_amount`, it must be a raise or bet no larger
-    than that amount, and at least `min_amount` (the legal minimum) when that is known."""
+    than that amount, at least `min_amount` (the legal minimum) when that is known, and at least the verdict's
+    `min_target` (a floor on the size itself, e.g. no min-raise opens) when it has one."""
     preferred = verdict.get("preferred")
     if min_amount is None:
         min_amount = verdict.get("min_amount")
@@ -1333,4 +1335,6 @@ def agrees(verdict: dict, action: str, amount=None, *, min_amount=None) -> bool:
     cap = verdict.get("target_amount")
     if cap is None:
         return True
-    return action in ("raise", "bet") and amount is not None and amount <= cap and (min_amount is None or amount >= min_amount)
+    floor = verdict.get("min_target")
+    return (action in ("raise", "bet") and amount is not None and amount <= cap and (min_amount is None or amount >= min_amount)
+            and (floor is None or amount >= floor))

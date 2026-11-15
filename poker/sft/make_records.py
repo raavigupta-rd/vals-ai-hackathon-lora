@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import re
 from pathlib import Path
 
 from poker.hints import parse_prompt
@@ -195,10 +196,64 @@ def select(rows, *, cycle: int, abstain_ratio: float = 2.0, seed: int = 0, resam
     return records, stats
 
 
-def cleanup_anchors(records, *, n: int, cycle: int, seed: int = 0) -> list[dict]:
+_LEAK_MARKERS = ("SCRATCHPAD>>>", "<<<SCRATCHPAD")
+_HAND_OVER = re.compile(r"## Hand (\d+) is over")
+MULTI_TURN_MIN_ACTIONS = 3
+
+
+def _mentions_hand(contents: str, hand: int) -> bool:
+    """True when the pad names the hand: 'Hand 3', 'hand #3', 'H3', '#3' (not inside a longer number)."""
+    return re.search(rf"(?:\bhand\s*#?\s*|\bh\s*#?\s*|#\s*){hand}(?!\d)", contents, re.IGNORECASE) is not None
+
+
+def _cleanup_hand(record: dict) -> int | None:
+    for message in reversed(record.get("messages") or []):
+        found = _HAND_OVER.search(message.get("content") or "") if isinstance(message.get("content"), str) else None
+        if found:
+            return int(found.group(1))
+    hand = (record.get("match") or {}).get("hand")
+    return hand if isinstance(hand, int) else None
+
+
+def _prompt_action_turns(record: dict) -> int:
+    """Hero action turns in this hand, counted from the cleanup prompt: every user message that asks for submit_action."""
+    return sum(1 for m in record.get("messages") or []
+               if m.get("role") == "user" and isinstance(m.get("content"), str)
+               and "Call submit_action with your decision" in m["content"])
+
+
+def hero_action_index(rows) -> dict:
+    """(match_id, hand, seat) -> hero action names in order, from joined action records."""
+    found: dict = {}
+    for r in rows:
+        match = r.get("match") or {}
+        if r.get("kind") != "action" or match.get("match_id") is None:
+            continue
+        args = _call(r) or {}
+        key = (match["match_id"], match.get("hand"), match.get("seat"))
+        position = match.get("action_index")
+        if not isinstance(position, int):
+            position = len(found.get(key, []))  # keep arrival order within this hand
+        found.setdefault(key, []).append((position, args.get("action")))
+    return {k: [a for _, a in sorted(v, key=lambda x: x[0])] for k, v in found.items()}
+
+
+def is_multi_turn(record: dict, hero_actions: dict | None = None) -> bool:
+    """Hand with >= 3 hero action turns, or one whose last hero action was a check."""
+    match = record.get("match") or {}
+    actions = (hero_actions or {}).get((match.get("match_id"), match.get("hand"), match.get("seat")))
+    if actions:
+        return len(actions) >= MULTI_TURN_MIN_ACTIONS or actions[-1] == "check"
+    return _prompt_action_turns(record) >= MULTI_TURN_MIN_ACTIONS
+
+
+def cleanup_anchors(records, *, n: int, cycle: int, seed: int = 0, hero_actions: dict | None = None) -> list[dict]:
     """Up to n after-hand cleanup turns answered with exactly one valid update_scratchpad call, as SFT anchors.
-    SFT on action turns alone made fine-tunes answer cleanup turns with submit_action (c2b-s12: 67% correct)."""
-    pool = []
+    SFT on action turns alone made fine-tunes answer cleanup turns with submit_action (c2b-s12: 67% correct).
+
+    Dropped: pads that leak the SCRATCHPAD delimiters or never mention the current hand number (they teach stale
+    or broken pads). Multi-turn hands (see is_multi_turn) are sampled first; single-action hands fill the rest."""
+    multi, single = [], []
     for r in records:
         if r.get("kind") != "cleanup" or r.get("cutoff") or not (r.get("reasoning") or "").strip():
             continue
@@ -210,13 +265,51 @@ def cleanup_anchors(records, *, n: int, cycle: int, seed: int = 0) -> list[dict]
             args = json.loads(args) if isinstance(args, str) else args
         except json.JSONDecodeError:
             continue
-        if not isinstance(args, dict) or set(args) != {"contents"} or len(args["contents"]) > 5000:
+        if not isinstance(args, dict) or set(args) != {"contents"} or not isinstance(args["contents"], str) \
+                or len(args["contents"]) > 5000:
             continue
-        pool.append({"decision_id": r["span_id"], "messages": r["messages"], "weight": 1.0, "source": "cleanup_anchor",
-                     "cycle": cycle, "target": {"reasoning": r["reasoning"], "content": r.get("content") or "",
-                                                "tool_call": {"name": "update_scratchpad", "arguments": args}}})
-    random.Random(seed).shuffle(pool)
-    return pool[:n]
+        if any(marker in args["contents"] for marker in _LEAK_MARKERS):
+            continue
+        hand = _cleanup_hand(r)
+        if hand is None or not _mentions_hand(args["contents"], hand):
+            continue
+        item = {"decision_id": r["span_id"], "messages": r["messages"], "weight": 1.0, "source": "cleanup_anchor",
+                "cycle": cycle, "target": {"reasoning": r["reasoning"], "content": r.get("content") or "",
+                                           "tool_call": {"name": "update_scratchpad", "arguments": args}}}
+        (multi if is_multi_turn(r, hero_actions) else single).append(item)
+    rng = random.Random(seed)
+    rng.shuffle(multi)
+    rng.shuffle(single)
+    return (multi + single)[:n]
+
+
+def load_pad_records(path: Path, *, weight: float, cycle: int) -> list[dict]:
+    """Teacher-pad SFT records (poker/pad/build_records.py). Each weight is multiplied by `weight`; 0 drops them all."""
+    if weight <= 0:
+        return []
+    out = []
+    for line in Path(path).open(encoding="utf-8"):
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        out.append(record | {"weight": record.get("weight", 1.0) * weight, "source": record.get("source") or "teacher_pad",
+                             "cycle": record.get("cycle", cycle)})
+    return out
+
+
+def apply_critic_weights(records, weights: dict) -> tuple[list[dict], int]:
+    """Multiply each record's weight by weights[decision_id] (default 1). A zero weight drops the record.
+    Returns (records, number dropped). Input records are not mutated."""
+    out, dropped = [], 0
+    for record in records:
+        factor = float(weights.get(record["decision_id"], 1.0))
+        if factor < 0:
+            raise ValueError(f"negative critic weight for {record['decision_id']}: {factor}")
+        if factor == 0:
+            dropped += 1
+            continue
+        out.append(record | {"weight": record["weight"] * factor})
+    return out, dropped
 
 
 def main() -> None:
@@ -240,6 +333,10 @@ def main() -> None:
     parser.add_argument("--keep-say", action="store_true", help="keep the table-talk 'say' argument in targets (default: removed)")
     parser.add_argument("--weight-scale", type=float, default=1.0, help="multiply every weight (newer cycles weigh more)")
     parser.add_argument("--resampled", type=Path, help="poker/sft/resample.py output: own-words corrections")
+    parser.add_argument("--pad-records", type=Path, help="teacher-pad SFT records (poker/pad/build_records.py) to merge in")
+    parser.add_argument("--pad-weight", type=float, default=1.0, help="multiply the weight of every --pad-records record (0 drops them)")
+    parser.add_argument("--critic-weights", type=Path,
+                        help="JSON {span_id: weight} from poker/critic/merge.py: multiplies record weights, weight 0 drops the record")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     resampled = {}
@@ -273,9 +370,17 @@ def main() -> None:
     if args.cleanup_ratio > 0:
         cleanups = [json.loads(line) for line in args.joined.open(encoding="utf-8")]
         cleanups = [r for r in cleanups if r.get("source") == "arena" and r.get("deployment") == args.cleanup_deployment]
-        extra = cleanup_anchors(cleanups, n=round(args.cleanup_ratio * len(records)), cycle=args.cycle)
+        hero = hero_action_index(json.loads(line) for line in args.joined.open(encoding="utf-8"))
+        extra = cleanup_anchors(cleanups, n=round(args.cleanup_ratio * len(records)), cycle=args.cycle, hero_actions=hero)
         records += extra
         stats["cleanup_anchors"] = len(extra)
+    if args.pad_records:
+        pads = load_pad_records(args.pad_records, weight=args.pad_weight, cycle=args.cycle)
+        records += pads
+        stats["pad_records"] = len(pads)
+    if args.critic_weights:
+        records, dropped = apply_critic_weights(records, json.loads(args.critic_weights.read_text(encoding="utf-8")))
+        stats["critic_dropped"] = dropped
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", encoding="utf-8") as stream:
         for record in records:

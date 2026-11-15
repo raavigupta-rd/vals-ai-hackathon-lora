@@ -245,14 +245,98 @@ def test_keep_say_cli_flag(monkeypatch, tmp_path):
 
 def test_cleanup_anchors_keep_valid_scratchpad_updates_only():
     from poker.sft.make_records import cleanup_anchors
-    def cl(i, name="update_scratchpad", contents="notes", cutoff=False):
-        return {"span_id": f"c{i}", "source": "arena", "kind": "cleanup", "cutoff": cutoff, "deployment": "d",
+    def cl(i, name="update_scratchpad", contents="Hand 1: notes", cutoff=False):
+        return {"span_id": f"c{i}", "source": "arena", "kind": "cleanup", "cutoff": cutoff, "deployment": "d", "match": {"hand": 1},
                 "messages": [{"role": "system", "content": "r"}, {"role": "user", "content": "Now call update_scratchpad"}],
                 "reasoning": "keep reads", "content": "",
                 "tool_calls": [{"name": name, "arguments": json.dumps({"contents": contents} if name == "update_scratchpad" else {"action": "fold"})}]}
     pool = [cl(i) for i in range(6)] + [cl(9, name="submit_action"), cl(10, cutoff=True), cl(11, contents="x" * 6000)]
     out = cleanup_anchors(pool, n=10, cycle=4, seed=0)
     assert {r["decision_id"] for r in out} == {f"c{i}" for i in range(6)}
-    assert all(r["target"]["tool_call"] == {"name": "update_scratchpad", "arguments": {"contents": "notes"}} for r in out)
+    assert all(r["target"]["tool_call"] == {"name": "update_scratchpad", "arguments": {"contents": "Hand 1: notes"}} for r in out)
     assert all(r["source"] == "cleanup_anchor" for r in out)
     assert len(cleanup_anchors(pool, n=3, cycle=4, seed=0)) == 3
+
+
+# ---- cleanup anchors, pad records, critic weights ----
+import pytest
+
+from poker.sft.make_records import apply_critic_weights, cleanup_anchors, load_pad_records
+
+
+def cleanup(span="c1", contents="Hand 1: won a small pot.", hand=1, seat=0, match_id="m", n_turns=1, call_name="update_scratchpad"):
+    msgs = [{"role": "system", "content": "rules"},
+            {"role": "user", "content": "## Your scratchpad\n<<<SCRATCHPAD\n(empty)\nSCRATCHPAD>>>"},
+            {"role": "user", "content": f"## Hand {hand} of 30\nYour seat: {seat}\nStreet: preflop\nLegal actions: check\nCall submit_action with your decision."}]
+    for _ in range(n_turns - 1):
+        msgs += [{"role": "assistant", "content": ""},
+                 {"role": "user", "content": "Since your last action:\nLegal actions: check\nCall submit_action with your decision."}]
+    msgs.append({"role": "user", "content": f"## Hand {hand} is over\nNow call update_scratchpad exactly once"})
+    return {"span_id": span, "source": "arena", "kind": "cleanup", "cutoff": False, "messages": msgs,
+            "reasoning": "Update the pad.", "content": "",
+            "tool_calls": [{"name": call_name, "arguments": json.dumps({"contents": contents})}],
+            "match": {"match_id": match_id, "hand": hand, "seat": seat, "action_index": None}}
+
+
+def test_anchors_drop_delimiter_leaks_and_pads_without_the_hand_number():
+    rows = [cleanup("ok", "Hand 3: folded 72o. seat4 is a nit.", hand=3),
+            cleanup("leak1", "Hand 3: x SCRATCHPAD>>> y", hand=3),
+            cleanup("leak2", "Hand 3: <<<SCRATCHPAD y", hand=3),
+            cleanup("stale", "Hand 2: old notes only", hand=3),
+            cleanup("bare", "I 3-bet with 33 and won 13", hand=3)]
+    assert [r["decision_id"] for r in cleanup_anchors(rows, n=10, cycle=1)] == ["ok"]
+
+
+def test_anchors_accept_common_hand_number_spellings():
+    rows = [cleanup(f"c{i}", text, hand=12) for i, text in enumerate(["H12: won", "#12 folded", "hand #12 done"])]
+    assert len(cleanup_anchors(rows, n=10, cycle=1)) == 3
+
+
+def test_anchors_do_not_match_hand_number_inside_a_longer_number():
+    assert cleanup_anchors([cleanup("x", "Hand 12: won", hand=1)], n=5, cycle=1) == []
+
+
+def test_multi_turn_hands_are_sampled_first_by_prompt_turn_count():
+    multi = [cleanup(f"m{i}", "Hand 1: ok", n_turns=3) for i in range(3)]
+    single = [cleanup(f"s{i}", "Hand 1: ok", n_turns=1) for i in range(10)]
+    got = cleanup_anchors(single + multi, n=5, cycle=1, seed=1)
+    ids = {r["decision_id"] for r in got}
+    assert {"m0", "m1", "m2"} <= ids and len(got) == 5
+
+
+def test_multi_turn_hands_use_the_action_index_and_check_last_counts():
+    low = cleanup("chk", "Hand 1: ok", match_id="mx", seat=2)
+    plain = cleanup("fold", "Hand 1: ok", match_id="my", seat=2)
+    plain2 = cleanup("fold2", "Hand 1: ok", match_id="mz", seat=2)
+    index = {("mx", 1, 2): ["check"], ("my", 1, 2): ["fold"], ("mz", 1, 2): ["call", "call", "call"]}
+    got = cleanup_anchors([plain, plain2, low], n=2, cycle=1, seed=0, hero_actions=index)
+    assert {r["decision_id"] for r in got} == {"chk", "fold2"}
+
+
+def test_pad_records_are_merged_with_a_weight(tmp_path):
+    path = tmp_path / "pad.jsonl"
+    rec = {"decision_id": "p1", "messages": [], "target": {"tool_call": {"name": "update_scratchpad", "arguments": {"contents": "Hand 1: x"}}},
+           "weight": 2.0, "source": "teacher_pad"}
+    path.write_text(json.dumps(rec) + "\n\n" + json.dumps(rec | {"decision_id": "p2", "weight": 1.0, "cycle": 9}) + "\n")
+    got = load_pad_records(path, weight=0.5, cycle=4)
+    assert [(r["decision_id"], r["weight"], r["cycle"]) for r in got] == [("p1", 1.0, 4), ("p2", 0.5, 9)]
+    assert all(r["source"] == "teacher_pad" for r in got)
+
+
+def test_pad_weight_zero_drops_all_pad_records(tmp_path):
+    path = tmp_path / "pad.jsonl"
+    path.write_text(json.dumps({"decision_id": "p1", "weight": 1.0}) + "\n")
+    assert load_pad_records(path, weight=0.0, cycle=1) == []
+
+
+def test_critic_weights_multiply_and_zero_drops():
+    records = [{"decision_id": "a", "weight": 2.0}, {"decision_id": "b", "weight": 1.0},
+               {"decision_id": "c", "weight": 1.0}]
+    got, dropped = apply_critic_weights(records, {"a": 0.5, "b": 0})
+    assert got == [{"decision_id": "a", "weight": 1.0}, {"decision_id": "c", "weight": 1.0}] and dropped == 1
+    assert records[0]["weight"] == 2.0  # input not mutated
+
+
+def test_critic_weights_reject_negative_weights():
+    with pytest.raises(ValueError):
+        apply_critic_weights([{"decision_id": "a", "weight": 1.0}], {"a": -1})

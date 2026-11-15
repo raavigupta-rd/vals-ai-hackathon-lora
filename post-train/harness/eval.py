@@ -49,7 +49,7 @@ def _msg_to_json(m) -> dict:
     return out
 
 
-async def run_one(problem, policy, renderer, args, sem):
+async def run_one(problem, sample, policy, renderer, args, sem):
     async with sem:
         env, msg_env = build_env(problem, renderer, max_turns=args.max_turns,
                                  max_trajectory_tokens=args.max_context, max_generation_tokens=args.max_tokens)
@@ -65,7 +65,7 @@ async def run_one(problem, policy, renderer, args, sem):
         gf = await grade(problem, tools.last_compiled_code, "fraction")
         sampled = sum(len(t.ac.tokens) for t in traj.transitions) if traj else 0
         row = {
-            "id": problem["id"], "title": problem["title"], "rating": problem["rating"],
+            "id": problem["id"], "sample": sample, "title": problem["title"], "rating": problem["rating"],
             "score": g["score"], "score_fraction": gf["score"],
             "small_pass": g.get("small_pass", 0.0), "large_pass": g.get("large_pass", 0.0),
             "verdicts_small": g.get("small_verdicts", ""), "verdicts_large": g.get("large_verdicts", ""),
@@ -113,6 +113,7 @@ async def main(args):
     if args.n:
         step = max(1, len(problems) // args.n)
         problems = problems[::step][: args.n]  # spread across the rating range
+    jobs = [(p, k) for p in problems for k in range(args.samples)]
     out_dir = ROOT / "runs" / args.tag
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -126,13 +127,14 @@ async def main(args):
     renderer = renderers.get_renderer(renderer_name, tokenizer)
     policy = TinkerTokenCompleter(sampling_client, max_tokens=args.max_tokens, temperature=args.temperature,
                                   context_window=args.max_context)
-    print(f"model={args.model_path or args.base_model} renderer={renderer_name} problems={len(problems)}")
+    print(f"model={args.model_path or args.base_model} renderer={renderer_name} problems={len(problems)} "
+          f"samples={args.samples} backend={sandbox.BACKEND}")
     (out_dir / "config.json").write_text(json.dumps(vars(args), indent=2))
 
     sem = asyncio.Semaphore(args.concurrency)
     rows = []
     with (out_dir / "results.jsonl").open("w") as f:
-        for coro in asyncio.as_completed([run_one(p, policy, renderer, args, sem) for p in problems]):
+        for coro in asyncio.as_completed([run_one(p, k, policy, renderer, args, sem) for p, k in jobs]):
             row = await coro
             rows.append(row)
             f.write(json.dumps(row) + "\n")
@@ -156,4 +158,5 @@ if __name__ == "__main__":
     ap.add_argument("--max-turns", type=int, default=100)
     ap.add_argument("--temperature", type=float, default=0.6)
     ap.add_argument("--concurrency", type=int, default=16)
+    ap.add_argument("--samples", type=int, default=1, help="rollouts per problem")
     asyncio.run(main(ap.parse_args()))

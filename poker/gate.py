@@ -392,9 +392,19 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--n-cleanup", type=int, default=30, help="cleanup prompts replayed per deployment (0 skips)")
+    parser.add_argument("--exploits", default="", help="teacher rules to enable, comma list; 'simple' = the v6 set")
     args = parser.parse_args()
     client = HttpClient(load_api_key())
     started = time.monotonic()
+    if args.exploits:
+        from poker import teacher
+
+        if args.exploits == "simple":
+            from poker.sft.make_records import SIMPLE_EXPLOITS
+
+            teacher.EXPLOITS = set(SIMPLE_EXPLOITS)
+        else:
+            teacher.EXPLOITS = set(args.exploits.split(","))
     entries = load_entries(args.joined, args.db, args.source_deployment)
     spots = select_spots(entries, n_judged=args.n_judged, n_other=args.n_other, seed=args.seed, repeats=args.repeats,
                          other_repeats=args.other_repeats, bust_repeats=args.bust_repeats)

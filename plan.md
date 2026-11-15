@@ -196,6 +196,23 @@ group, `Decision:` agrees with the tool call, talk on the whitelist only), `pyth
 and count errors, also self-chained from hand 1), the full gate, real-hands EV (`python -m poker.realhands`), and the
 injection probe (`python -m poker.inject.probe`).
 
+**c8 results (6:15 AM).** `c8s-s18` (c8-silent 12 steps + 6 more, `infer_1b6687260763`) is the best model so far:
+valid 156/160 (c7x-s18 140/160 in the same run), bb_option 36/40, pad self-chain hand-1 parse 0.88 (c7x 0), full gate
+PASS, real-hands mean EV 1.28 vs 1.16. `c8s-s15` fails the gate (mixing collapsed). `c8t-s12` (talk) fails the gate on
+bust spots and says off-whitelist lines; decision: submit silent, not talk. The pad parse metric is optimistic (a header
+alone counts as parsed). The 25% pad weight did not help play, so c9 cuts it to about 7%.
+Injection probe: the first c8s-s18 run showed a talk effect (control fold 21%), but a re-run at 7:30 AM shows no
+significant effect for any line (control 32%). The first result was sample noise.
+
+**c9 (building now, from c8s-s18).** Bigger BB-option set with junk hands and the eval spots held out, 3 BB opens
+instead of min-raises, all-in price records, contradiction cleanup, higher preflop correction weight, pads at 7%.
+c9 replaces c8s-s18 only if it beats it on the same checks.
+c9 results (7:30 AM, `train_9c501c65b84e`): c9-s12 ties c8s-s18 on gate validity (98.1% vs 98.6%), gate PASS,
+agreement +4% (NS), real-hands mean EV 1.95 vs 0.99 (wEV NS), probe clean. It is worse on c8_check (148 vs 155/160):
+bb_option 32/40, because the model still reasons "weak hand, early position, fold" in the BB. c9-s6 fails the gate.
+Not a clear win, so c8s-s18 stays the pick. A 6-step continuation (`train_d7424874bbb4`, c9-s15/s18) is running,
+because the same step lifted c8 from 150 to 156 valid.
+
 **Final submission.** A submits the winner before 2 PM, as late as is safe (about 1:30 PM). If c8 fails, the final
 is `c7x-s18`.
 

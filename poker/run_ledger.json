@@ -470,8 +470,63 @@
    "tasks": 7430,
    "steps": 12,
    "parent": "c7x-s18",
-   "status": "running",
-   "note": "final candidate, no table talk. Facts v2 (copyable fields), Decision line, tight teacher (facing_open_tight, matched-pot odds, open-size check), 151 BB-option records, pad records 25% with worked count updates and hand-1 x3, defense covers probe-2 styles. c8-talk (same + one exact say line on weak bets/raises) trains next on pokerbots-sft-c8-talk."
+   "status": "succeeded",
+   "note": "final candidate, no table talk. Facts v2 (copyable fields), Decision line, tight teacher (facing_open_tight, matched-pot odds, open-size check), 151 BB-option records, pad records 25% with worked count updates and hand-1 x3, defense covers probe-2 styles. c8-talk (same + one exact say line on weak bets/raises) trains next on pokerbots-sft-c8-talk.",
+   "checkpoints": {
+    "step6": "ckpt_fcb4afb83eb8",
+    "step12": "ckpt_fde738bf4a21"
+   }
+  },
+  {
+   "id": "train_616cdb17e62b",
+   "kind": "sft_c8_talk",
+   "dataset": "pokerbots-sft-c8-talk",
+   "steps": 12,
+   "parent": "c7x-s18",
+   "status": "succeeded",
+   "checkpoints": {
+    "step6": "ckpt_c04756f0b394",
+    "step12": "ckpt_b3069c147dce"
+   },
+   "note": "first c8-talk run; not deployed"
+  },
+  {
+   "id": "train_a9b5f260d877",
+   "kind": "sft_c8_talk",
+   "dataset": "pokerbots-sft-c8-talk",
+   "steps": 12,
+   "parent": "c7x-s18",
+   "status": "succeeded",
+   "checkpoints": {
+    "step6": "ckpt_3fe861862d6e",
+    "step12": "ckpt_1da661d8642a"
+   },
+   "note": "deployed as c8t-s12. c8_check: valid 147/160, bb_option 30/40, 4 off-whitelist says; worse than c8s-s12 | deployments c8s-s6/c8s-s15/c8t-s12 deleted 07:02 to free GPUs"
+  },
+  {
+   "id": "train_6e19b76c7d04",
+   "kind": "sft_c8_silent_cont",
+   "dataset": "pokerbots-sft-c8-silent",
+   "steps": 6,
+   "parent": "c8s-s12",
+   "base_checkpoint": "ckpt_fde738bf4a21",
+   "status": "succeeded",
+   "checkpoints": {
+    "step15": "ckpt_d07f70e8210b",
+    "step18": "ckpt_a0233fc28d89"
+   },
+   "note": "c8-silent continuation, 6 more steps. c8s-s15=infer_24d857466bf0: valid 149/160, bb 29/40, gate FAIL (mixing collapsed, bust). c8s-s18=infer_1b6687260763: valid 156/160, bb 36/40, selfchain hand-1 parse 0.88, gate PASS, realhands mean EV 1.28 (c8s-s12 1.16). Best so far. | deployments c8s-s6/c8s-s15/c8t-s12 deleted 07:02 to free GPUs"
+  },
+  {
+   "id": "train_9c501c65b84e",
+   "kind": "sft_c9_silent",
+   "dataset": "pokerbots-sft-c9-silent",
+   "tasks": 6943,
+   "steps": 12,
+   "parent": "c8s-s18",
+   "base_checkpoint": "ckpt_a0233fc28d89",
+   "status": "pending",
+   "note": "c9: 663 BB-option records (221 real spots x3 deals, eval spots held out, weight 1), Facts header '(0=SB, 1=BB)', 3 BB opens (88 rewrites, 122 drops), 58 all-in price records, 15 cleanup drops, preflop teacher_resampled weight 3, pads 15%. Pending 30 min on GPUs; deleted c8s-s6, c8s-s15, c8t-s12 (user approved)."
   }
  ],
  "training_slot": {

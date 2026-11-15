@@ -474,30 +474,14 @@
     }
   },
   "arena_entry": {
-    "deployment": "vals-hackathon/base",
-    "deployment_id": "infer_d3d2b6b92171",
-    "submitted": "2026-11-14 ~19:20 PST by A",
-    "reason": "sft-c1-s10 busted in 62% of 16 matches (place 4.50 vs base 3.67); round-2 ablations start from base, so base traces are on-policy",
+    "deployment": "vals-hackathon/c2b-s12",
+    "deployment_id": "infer_65ddd9f48e55",
+    "checkpoint": "ckpt_54a267c87fcd",
+    "submitted": "2026-11-14 ~19:40 PST by A",
+    "reason": "round-1 gate: +11% teacher agreement vs base (CI +5..+17), valid 97%, mixing kept, play_local 0 failed",
     "previous": {
-      "deployment": "vals-hackathon/sft-c1-s10",
-      "deployment_id": "infer_9a3071661253",
-      "results_sat_1830": {
-        "sft-c1-s10 (allin)": {
-          "matches": 9,
-          "mean_place": 4.33,
-          "busts": 4,
-          "bb100": -226.6,
-          "preflop_allin_calls": "5/8",
-          "fallbacks": "15/341"
-        },
-        "base (pokerbot)": {
-          "matches": 36,
-          "mean_place": 3.67,
-          "busts": 11,
-          "bb100": -68.4
-        },
-        "lesson": "Gate passed s10 but it busts more in the arena; gate replayed base's old spots only. Gate now replays all-in spots 5x and fails candidates that regress there."
-      }
+      "deployment": "vals-hackathon/base",
+      "deployment_id": "infer_d3d2b6b92171"
     }
   },
   "notes": [

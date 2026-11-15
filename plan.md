@@ -169,6 +169,36 @@ output tokens and maximum 865. Full base measurements remain pending; early succ
 Targets: cut-off rate under 2%, median reply about 1,500 tokens, 99th percentile under 4,000, BB per hand not worse
 than base. The cleanup turn has its own 10,000-token cap; check that its updates finish too.
 
+## Sunday Nov 15: status and final-model plan (updated 4:50 AM PST)
+
+**Where we are.** The live arena entry is `c7x-s18` (`infer_5b19d6f57361`). The arena itself went down around 2:53 AM
+(organizers' database quota). When it comes back, park on `c4-s6` (`infer_a558549cc261`, submission name `base`) so
+our table-talk lines do not leak; A's Claude session checks every 30 minutes and does this.
+
+**What the night taught us** (details and numbers in `poker/run_ledger.json`, `findings`):
+- Only placement against team bots counts. Split every stat by team vs house games.
+- c5 and c6 failed on reply format because pad-writing records carried 40-67% of the SFT weight and the action line
+  was called `Pad:`. Read raw failed replies before diagnosing anything.
+- `c7x-s18` passed the gate and fails 1.5% of live replies (c4-s6: 2.5%). Open problems: live scratchpads are never
+  in the v2 format (the break is at hand 1), the `Facts:` position is wrong in 57% of replies, the big-blind option
+  fails 8 of 18 times, it still limps and cold-calls too much, and it says an injection line in 6-11% of turns.
+- Vals wins by playing few pots: folds 91% of opens faced, opens 3 BB, never limps.
+
+**c8 (final candidate, training now).** Continues from `c7x-s18`. Two builds from the same data: `c8-silent` (no
+table talk, the one we test in the arena) and `c8-talk` (one exact line on weak bets and raises, kept out of the
+arena until the final submission). Changes: Facts v2 with only copyable fields, a code-written `Decision:` line,
+tighter teacher (no cold calls outside a small set, matched-pot odds, open-size check), a big-blind-option block,
+pad records at 25% of weight with worked count updates and hand-1 records at triple weight, injection defense for the
+styles that still got through.
+
+**c8 must beat c7x-s18 on all of these before it replaces it:** `scratchpad/c8_check.py` (valid replies by spot
+group, `Decision:` agrees with the tool call, talk on the whitelist only), `python -m poker.pad.check` (v2 parse rate
+and count errors, also self-chained from hand 1), the full gate, real-hands EV (`python -m poker.realhands`), and the
+injection probe (`python -m poker.inject.probe`).
+
+**Final submission.** A submits the winner before 2 PM, as late as is safe (about 1:30 PM). If c8 fails, the final
+is `c7x-s18`.
+
 ## Team and setup
 
 ### Combined A/B review (after A commit `815c9bf`)

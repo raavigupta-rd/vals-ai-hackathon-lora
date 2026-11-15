@@ -28,6 +28,10 @@ COMPILE_TIMEOUT = 60.0
 DEFAULT_MEM = 1024 * 1024 * 1024  # 1 GiB, as in the Vals example problem
 
 _EXEC_SEM: asyncio.Semaphore | None = None
+BACKEND = os.environ.get("HARNESS_BACKEND", "docker")  # "docker" (local) or "modal"
+_MODAL_SEM: asyncio.Semaphore | None = None
+_CODE: dict[str, str] = {}  # hash -> source, for the modal backend (binaries are compiled remotely)
+_MODAL_COMPILED: dict[str, tuple[bool, str]] = {}
 
 
 def _sem() -> asyncio.Semaphore:
@@ -38,9 +42,11 @@ def _sem() -> asyncio.Semaphore:
 
 
 def ensure_container() -> None:
-    """Start the sandbox container if it isn't running (idempotent)."""
+    """Start the sandbox container if it isn't running (idempotent). No-op for the modal backend."""
     for sub in ("ro/bin", "ro/tests", "rw/src", "rw/bin", "rw/out"):
         (WORK_DIR / sub).mkdir(parents=True, exist_ok=True)
+    if BACKEND == "modal":
+        return
     shutil.copy(Path(__file__).with_name("runner_in_container.py"), WORK_DIR / "ro" / "runner.py")
     r = subprocess.run(["docker", "inspect", "-f", "{{.State.Running}}", CONTAINER], capture_output=True, text=True)
     if r.returncode == 0 and r.stdout.strip() == "true":
@@ -85,8 +91,32 @@ async def _exec(args: list[str], timeout: float) -> tuple[int, str, str]:
     return proc.returncode, out.decode(errors="replace"), err.decode(errors="replace")
 
 
+async def _modal_call(code: str, spec: dict | None) -> dict:
+    global _MODAL_SEM
+    from harness.modal_backend import remote_execute
+    if _MODAL_SEM is None:
+        _MODAL_SEM = asyncio.Semaphore(int(os.environ.get("MODAL_PARALLEL", 96)))
+    err = None
+    for attempt in range(3):
+        try:
+            async with _MODAL_SEM:
+                return await remote_execute(code, spec)
+        except Exception as e:  # transient infra errors must not count as wrong answers
+            err = e
+            print(f"[sandbox/modal] call failed (attempt {attempt + 1}): {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            await asyncio.sleep(2 + 2 * attempt)
+    raise RuntimeError(f"modal sandbox failed: {err}")
+
+
 async def compile_cpp(code: str) -> CompileResult:
     h = hashlib.sha256((" ".join(CXX_FLAGS) + "\n" + code).encode()).hexdigest()[:24]
+    if BACKEND == "modal":
+        _CODE[h] = code
+        if h not in _MODAL_COMPILED:
+            r = await _modal_call(code, None)
+            _MODAL_COMPILED[h] = (r["compiled"], r.get("error", ""))
+        ok, msg = _MODAL_COMPILED[h]
+        return CompileResult(ok, f"modal:{h}" if ok else None, msg)
     bin_host = WORK_DIR / "ro" / "bin" / h
     err_host = WORK_DIR / "ro" / "bin" / f"{h}.err"
     if bin_host.exists():
@@ -112,6 +142,13 @@ def _to_container(p: Path) -> str:
 
 
 async def _run_spec(spec: dict, n: int) -> list[RunResult]:
+    if spec["binary"].startswith("modal:"):
+        try:
+            r = await _modal_call(_CODE[spec["binary"][6:]], spec)
+        except RuntimeError as e:
+            return [RunResult("RE", "", f"sandbox error: {e}", -1, 0.0, False)]
+        return [RunResult(x["status"], x.get("stdout", ""), x["stderr"], x["exit_code"], x["time"], x["passed"])
+                for x in r["results"]]
     run_id = uuid.uuid4().hex[:12]
     spec["out_dir"] = f"/rw/out/{run_id}"
     timeout = n * (spec["time_limit"] * 4 + 4) + 30  # must exceed the runner's per-test wall stop (4*tl+2)
@@ -130,6 +167,8 @@ async def _run_spec(spec: dict, n: int) -> list[RunResult]:
 
 
 async def run_stdin(binary: str, stdin: str, time_limit: float, mem_bytes: int = DEFAULT_MEM) -> RunResult:
+    if binary.startswith("modal:"):
+        return (await _run_spec({"binary": binary, "stdin": stdin, "time_limit": time_limit, "mem_bytes": mem_bytes}, 1))[0]
     in_dir = WORK_DIR / "rw" / "in"
     in_dir.mkdir(parents=True, exist_ok=True)
     name = uuid.uuid4().hex[:12] + ".in"

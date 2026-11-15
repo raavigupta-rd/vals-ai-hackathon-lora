@@ -151,7 +151,9 @@ async def grade(problem: dict, code: str | None, score_mode: Literal["subtask", 
     score = 0.0
     for part, pts in (("small", 40.0), ("large", 60.0)):
         tests = test_paths(problem[f"hidden_{part}"])
-        res = await sandbox.run_tests(comp.binary, tests, problem["time_limit"], problem["memory_limit"], checker=checker)
+        # all-or-nothing halves can stop at the first failing test (big CPU saving on brute-force TLEs)
+        res = await sandbox.run_tests(comp.binary, tests, problem["time_limit"], problem["memory_limit"], checker=checker,
+                                      stop_on_fail=(score_mode == "subtask"))
         frac = sum(bool(r.passed) for r in res) / max(1, len(tests))
         out[f"{part}_pass"] = frac
         out[f"{part}_verdicts"] = "".join({"OK": "A"}.get(r.status, r.status[0]) for r in res)

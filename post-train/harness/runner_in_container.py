@@ -18,6 +18,7 @@ import resource
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 MAX_OUT = 64 * 1024 * 1024
@@ -43,7 +44,7 @@ def tokens_match(got, exp):
 
 def run_one(binary, stdin_path_or_bytes, tl, mem, out_path):
     def pre():
-        cpu = int(tl * 2) + 1
+        cpu = int(tl + 0.999) + 1  # anything over tl is judged TLE anyway; kill soon after
         resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu + 1))
         resource.setrlimit(resource.RLIMIT_AS, (mem + 64 * 1024 * 1024,) * 2)
         resource.setrlimit(resource.RLIMIT_STACK, (resource.RLIM_INFINITY,) * 2)
@@ -60,19 +61,25 @@ def run_one(binary, stdin_path_or_bytes, tl, mem, out_path):
             fin.seek(0)
         else:
             fin = open(stdin_path_or_bytes, "rb")
-        # Time limit is judged on CPU time (user+sys) so host load doesn't cause false TLEs;
-        # wall clock only acts as a generous hard stop (e.g. for programs blocked on input).
-        ru0 = resource.getrusage(resource.RUSAGE_CHILDREN)
+        # Time limit is judged on this child's own CPU time (user+sys, via wait4) so host load and
+        # concurrent runs don't cause false TLEs; wall clock is only a generous hard stop.
+        p = subprocess.Popen([binary], stdin=fin, stdout=fout, stderr=ferr, cwd=td, preexec_fn=pre)
+        killed = threading.Event()
+
+        def _kill():
+            killed.set()
+            p.kill()
+
+        timer = threading.Timer(tl * 4 + 2, _kill)
         t0 = time.perf_counter()
-        try:
-            p = subprocess.run([binary], stdin=fin, stdout=fout, stderr=ferr, cwd=td, preexec_fn=pre,
-                               timeout=tl * 4 + 2)
-            rc, timed_out = p.returncode, False
-        except subprocess.TimeoutExpired:
-            rc, timed_out = -9, True
+        timer.start()
+        _, status_code, ru = os.wait4(p.pid, 0)
+        timer.cancel()
         wall = time.perf_counter() - t0
-        ru1 = resource.getrusage(resource.RUSAGE_CHILDREN)
-        cpu = (ru1.ru_utime - ru0.ru_utime) + (ru1.ru_stime - ru0.ru_stime)
+        rc = -os.WTERMSIG(status_code) if os.WIFSIGNALED(status_code) else os.WEXITSTATUS(status_code)
+        p.returncode = rc  # already reaped
+        timed_out = killed.is_set()
+        cpu = ru.ru_utime + ru.ru_stime
         dt = cpu if not timed_out else max(cpu, wall)
         fin.close()
         ferr.seek(0)
@@ -108,8 +115,7 @@ def head(path):
     return s + ("\n...[truncated]" if len(data) > SHOW else "")
 
 
-def main():
-    spec = json.loads(sys.argv[1])
+def run_spec(spec):
     out_dir = spec["out_dir"]
     os.makedirs(out_dir, exist_ok=True)
     os.chmod(out_dir, 0o777)
@@ -137,7 +143,11 @@ def main():
             res.append(r)
             if spec.get("stop_on_fail") and not r["passed"]:
                 break
-    print(json.dumps(res))
+    return res
+
+
+def main():
+    print(json.dumps(run_spec(json.loads(sys.argv[1]))))
 
 
 if __name__ == "__main__":

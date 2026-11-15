@@ -25,7 +25,7 @@ from poker.trace_quality import legal_reply
 INFERENCE_URL = "https://inference.appliedcompute.com/v1"
 TOOLS_PATH = Path(__file__).resolve().parent.parent / "opsd" / "tools.json"
 ACTIONS = ("fold", "check", "call", "bet", "raise")
-RULES = ("allin_call", "unopened", "free_fold")
+RULES = ("allin_call", "own_shove", "unopened", "facing_raise", "postflop_call", "free_fold")
 RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
@@ -145,7 +145,7 @@ def original_action(record: dict) -> str | None:
 
 
 def select_spots(entries: list[dict], *, n_judged: int | None, n_other: int, seed: int, repeats: int = 1,
-                 other_repeats: int = 1) -> list[dict]:
+                 other_repeats: int = 1, bust_repeats: int | None = None) -> list[dict]:
     """entries: {record, verdict}. Judged = verdict.preferred is not None. Deterministic for a fixed seed,
     whatever the input order."""
     key = lambda e: e["record"]["span_id"]  # noqa: E731
@@ -156,7 +156,10 @@ def select_spots(entries: list[dict], *, n_judged: int | None, n_other: int, see
         judged = rng.sample(judged, n_judged)
     other = rng.sample(other, min(n_other, len(other)))
     # Sampling at temperature is noisy; replaying each judged spot `repeats` times averages that noise out.
-    return [dict(e, group="judged") for e in judged for _ in range(repeats)] + [dict(e, group="other") for e in other for _ in range(other_repeats)]
+    # Bust spots (calling or making preflop all-ins) decide placement, so they get extra replays.
+    reps = lambda e: bust_repeats if bust_repeats and e["verdict"].get("rule") in BUST_RULES else repeats  # noqa: E731
+    return ([dict(e, group="judged") for e in judged for _ in range(reps(e))]
+            + [dict(e, group="other") for e in other for _ in range(other_repeats)])
 
 
 def quantile(values: list[float], p: float) -> float | None:
@@ -237,6 +240,8 @@ def mixing(rows: list[dict]) -> dict:
 
 
 VALID_SLACK, CUTOFF_SLACK, MIXING_FLOOR, WORSE_MARGIN = 0.01, 0.01, 0.6, -0.05
+BUST_RULES = ("allin_call", "own_shove")
+BUST_SLACK = 0.05  # bust-spot agreement may not fall more than 5 points below the reference
 
 
 def verdict(reference: dict, candidate: dict, diff: dict) -> dict:
@@ -253,6 +258,11 @@ def verdict(reference: dict, candidate: dict, diff: dict) -> dict:
         reasons.append(f"teacher agreement clearly worse ({diff['diff']:+.0%}, CI {diff['lo']:+.0%}..{diff['hi']:+.0%})")
     elif diff.get("diff") is not None and diff["diff"] < WORSE_MARGIN:
         reasons.append(f"teacher agreement lower ({diff['diff']:+.0%})")
+    for rule in BUST_RULES:
+        r = ((reference.get("judged") or {}).get("by_rule") or {}).get(rule)
+        c = ((candidate.get("judged") or {}).get("by_rule") or {}).get(rule)
+        if r and c and r["n"] >= 10 and c["agree_rate"] < r["agree_rate"] - BUST_SLACK:
+            reasons.append(f"bust spots ({rule}) worse: {c['agree_rate']:.0%} vs {r['agree_rate']:.0%}")
     ref_mix = (reference.get("mixing") or {}).get("mixed_rate")
     cand_mix = (candidate.get("mixing") or {}).get("mixed_rate")
     if ref_mix and cand_mix is not None and cand_mix < MIXING_FLOOR * ref_mix:
@@ -334,6 +344,7 @@ def main() -> None:
     parser.add_argument("--n-other", type=int, default=150)
     parser.add_argument("--repeats", type=int, default=3, help="replays per judged spot")
     parser.add_argument("--other-repeats", type=int, default=2, help="replays per other spot (measures mixing)")
+    parser.add_argument("--bust-repeats", type=int, default=5, help="replays per all-in spot (decides placement)")
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=None)
@@ -342,7 +353,7 @@ def main() -> None:
     started = time.monotonic()
     entries = load_entries(args.joined, args.db, args.source_deployment)
     spots = select_spots(entries, n_judged=args.n_judged, n_other=args.n_other, seed=args.seed, repeats=args.repeats,
-                         other_repeats=args.other_repeats)
+                         other_repeats=args.other_repeats, bust_repeats=args.bust_repeats)
     print(f"{len(entries)} arena decisions; replaying {len(spots)} x {len(args.deployment)} deployments", flush=True)
     result = run_gate(spots, args.deployment, client, chat_tools(), args.concurrency)
     out = args.out or Path("data/gate") / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".json")

@@ -174,3 +174,16 @@ def test_validity_and_cutoff_bars_are_relative_to_the_reference():
     worse = {"valid_rate": 0.95, "cutoff_rate": 0.01, "mixing": {"mixed_rate": 0.3}}
     v = gate.verdict(ref, worse, even)
     assert v["pass"] is False and "valid" in v["reasons"][0]
+
+
+def test_bust_spots_are_replayed_more_and_gate_on_their_own():
+    entries = [entry(i, "fold", rule="allin_call" if i < 4 else "unopened") for i in range(10)]
+    spots = gate.select_spots(entries, n_judged=None, n_other=0, seed=0, repeats=2, bust_repeats=5)
+    assert sum(1 for s in spots if s["verdict"]["rule"] == "allin_call") == 20
+    assert sum(1 for s in spots if s["verdict"]["rule"] == "unopened") == 12
+    ref = {"valid_rate": 1.0, "cutoff_rate": 0.0, "mixing": {"mixed_rate": 0.3},
+           "judged": {"by_rule": {"allin_call": {"n": 20, "agree": 16, "agree_rate": 0.8}}}}
+    cand = {"valid_rate": 1.0, "cutoff_rate": 0.0, "mixing": {"mixed_rate": 0.3},
+            "judged": {"by_rule": {"allin_call": {"n": 20, "agree": 12, "agree_rate": 0.6}}}}
+    v = gate.verdict(ref, cand, {"diff": 0.0, "lo": -0.1, "hi": 0.1})
+    assert v["pass"] is False and "bust" in " ".join(v["reasons"])

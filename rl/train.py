@@ -25,10 +25,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from ac2.sdk import Client, TrainingCustomHarnessConfig
+from ac2.sdk.model import ModelConfig
 from ac2.sdk.run_config import (
     EvalConfig,
     EvalDatasetConfig,
     ExperimentConfig,
+    GroupFilterConfig,
     InternalConfig,
     InternalLaunchConfig,
     RLConfig,
@@ -46,8 +48,45 @@ def _set(**values: Any) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value is not None}
 
 
+def mix_arg(text: str) -> tuple[str, float]:
+    """`DATASET:RATIO` for --mix."""
+    name, sep, ratio = text.rpartition(":")
+    try:
+        value = float(ratio)
+    except ValueError:
+        value = 0.0
+    if not sep or not name or value <= 0:
+        raise argparse.ArgumentTypeError(f"--mix wants DATASET:RATIO with RATIO > 0, got {text!r}")
+    return name, value
+
+
+def group_filter(args: argparse.Namespace) -> dict[str, Any]:
+    """Zero-variance group filtering, sent only when asked for."""
+    if args.group_filter_std is None:
+        if args.probe_samples is not None:
+            raise SystemExit("--probe-samples needs --group-filter-std")
+        return {}
+    if args.probe_samples is not None and args.probe_samples > args.samples_per_hand:
+        raise SystemExit(f"--probe-samples {args.probe_samples} is more than --samples-per-hand {args.samples_per_hand}")
+    return {
+        "group_filter": GroupFilterConfig(
+            **_set(by_reward_std=True, min_reward_std=args.group_filter_std, probe_samples=args.probe_samples)
+        )
+    }
+
+
+def train_datasets(args: argparse.Namespace) -> tuple[tuple[TrainDatasetConfig, ...], dict[str, Any]]:
+    """The training datasets, plus the `mixture` setting when --mix gives several weighted ones."""
+    if not args.mix:
+        return (TrainDatasetConfig(ac2_dataset_name=args.train_dataset or f"{args.prefix}-train"),), {}
+    rows = [(args.train_dataset, 1.0)] if args.train_dataset else []
+    rows += args.mix
+    return tuple(TrainDatasetConfig(ac2_dataset_name=n, ratio=r) for n, r in rows), {"mixture": "configured"}
+
+
 def run_config(args: argparse.Namespace, name: str) -> RunConfig:
-    train_dataset = args.train_dataset or f"{args.prefix}-train"
+    datasets, mixture = train_datasets(args)
+    train_dataset = "+".join(d.ac2_dataset_name for d in datasets)
     harness = TrainingCustomHarnessConfig(**_set(grading_timeout_seconds=args.grading_timeout))
     eval_cfg = (
         EvalConfig(mode="off")
@@ -66,13 +105,21 @@ def run_config(args: argparse.Namespace, name: str) -> RunConfig:
     )
     launch = _set(tensorboard_enabled=args.tensorboard or None)  # AC2 places the run; teams can't pick a cluster
     return RunConfig(
-        model=args.model,
+        # A registered checkpoint ID alone names the model; ModelConfig rejects model and checkpoint together.
+        model=ModelConfig(checkpoint=args.base_checkpoint) if args.base_checkpoint else args.model,
         name=name,
-        description=f"GRPO on {train_dataset} through the self-hosted poker harness, harness-side grading.",
+        description=f"GRPO on {train_dataset} through the self-hosted poker harness, harness-side grading"
+        + (f", from {args.base_checkpoint}." if args.base_checkpoint else "."),
         tags={"benchmark": "pokerbots", "method": "grpo", "dataset": train_dataset},
         experiment_cfg=ExperimentConfig(
             method=RLConfig(
-                **_set(advantage=args.advantage, use_kl_loss=args.kl_coef > 0 or None, kl_loss_coef=args.kl_coef or None)
+                **_set(
+                    advantage=args.advantage,
+                    use_kl_loss=args.kl_coef > 0 or None,
+                    kl_loss_coef=args.kl_coef or None,
+                    filter_truncated_samples=args.filter_truncated or None,
+                ),
+                **group_filter(args),
             ),
             step=StepConfig(
                 **_set(
@@ -84,17 +131,22 @@ def run_config(args: argparse.Namespace, name: str) -> RunConfig:
                 )
             ),
             tasks=TasksConfig(
-                datasets=(TrainDatasetConfig(ac2_dataset_name=train_dataset),),
+                datasets=datasets,
+                **mixture,
                 custom_harness=harness,
                 **_set(apply_chat_template_kwargs={"enable_thinking": True} if args.thinking else None),
             ),
-            trainer=TrainerConfig(**_set(learning_rate=args.lr)),
+            trainer=TrainerConfig(
+                **_set(learning_rate=args.lr, use_rollout_expert_routing_replay=args.routing_replay or None)
+            ),
             rollout=RolloutConfig(
                 **_set(
                     max_response_len=args.max_response_len,
                     max_total_len=args.max_total_len,
                     global_sampling_concurrency=args.concurrency,
                     n_inference_replicas=args.inference_replicas,
+                    temperature=args.temperature,
+                    sample_timeout=args.sample_timeout,
                 )
             ),
             eval=eval_cfg,
@@ -132,6 +184,15 @@ def parser() -> argparse.ArgumentParser:
                    help="don't render prompts with Qwen thinking on (the event has it on)")
     g.add_argument("--no-tensorboard", dest="tensorboard", action="store_false", help="don't record TensorBoard logs")
     a = p.add_argument_group("left to AC2's defaults unless you set them")
+    a.add_argument("--base-checkpoint", help="warm start: a registered checkpoint ID (ckpt_...); the model is inferred from it")
+    a.add_argument("--mix", action="append", type=mix_arg, metavar="DATASET:RATIO",
+                   help="train on several datasets by sampling weight (repeatable); with --train-dataset, that one joins at ratio 1")
+    a.add_argument("--group-filter-std", type=float, help="drop tasks whose probe reward std is below this (zero-variance groups)")
+    a.add_argument("--probe-samples", type=int, help="samples the group filter judges a task by (needs --group-filter-std)")
+    a.add_argument("--filter-truncated", action="store_true", help="zero the advantage of samples cut off by a length limit")
+    a.add_argument("--temperature", type=float, help="rollout sampling temperature")
+    a.add_argument("--routing-replay", action="store_true", help="replay rollout MoE expert routing in training (R3)")
+    a.add_argument("--sample-timeout", type=int, help="per-sample rollout timeout in seconds")
     a.add_argument("--lr", type=float, help="learning rate")
     a.add_argument("--concurrency", type=int, help="concurrent hands on your harness")
     a.add_argument("--keep-checkpoints", type=int, help="checkpoints to keep")

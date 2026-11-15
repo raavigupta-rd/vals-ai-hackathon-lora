@@ -61,6 +61,15 @@ def correction_reasoning(verdict: dict, hand_code: str) -> str:
                     f"{need} equity. Against this player's shoving range, {hand_code} has about {have}. Fold.")
         return (f"I face an all-in: {verdict['to_call']:g} more into a pot of {verdict['pot']:g}. I need about {need} "
                 f"equity and {hand_code} has about {have} against this player's shoving range. This is a clear call.")
+    if rule == "postflop_call":
+        need, have = f"{verdict['required']:.0%}", f"{verdict['equity']:.0%}"
+        facing = (f"On the {verdict['street']} I face a bet: {verdict['to_call']:g} more into a pot of "
+                  f"{verdict['pot']:g}, so I need about {need} equity.")
+        if preferred == "fold":
+            return (f"{facing} Against the hands this player bets this way, {hand_code} has about {have} on this "
+                    f"board. That is not enough. Fold.")
+        return (f"{facing} Against the hands this player bets this way, {hand_code} has about {have} on this "
+                f"board. That is enough, so call.")
     if rule == "unopened":
         if preferred == "raise":
             return f"{hand_code} is a premium hand and the pot is unopened. Raise for value."

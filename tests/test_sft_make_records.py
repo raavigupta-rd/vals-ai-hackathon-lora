@@ -24,6 +24,15 @@ def test_correction_reasoning_is_short_and_names_the_numbers():
     assert "38%" in text and "57%" in text and "96o" in text and len(text) < 600
 
 
+def test_correction_reasoning_for_postflop_call_names_street_price_and_equity():
+    verdict = {"rule": "postflop_call", "preferred": "fold", "equity": 0.21, "required": 0.35, "to_call": 80,
+               "pot": 180, "street": "turn", "n": 12}
+    text = correction_reasoning(verdict, hand_code="72o")
+    assert "turn" in text and "21%" in text and "35%" in text and "72o" in text and "Fold" in text and len(text) < 600
+    call = correction_reasoning(verdict | {"preferred": "call", "equity": 0.7}, hand_code="KK")
+    assert "70%" in call and "call" in call.lower()
+
+
 def test_select_mixes_corrections_agreements_and_clean_abstains():
     rows = [(joined("bad", "call"), {"rule": "allin_call", "preferred": "fold", "agree": False, "equity": 0.3,
                                     "required": 0.55, "to_call": 190, "pot": 200}, "96o"),

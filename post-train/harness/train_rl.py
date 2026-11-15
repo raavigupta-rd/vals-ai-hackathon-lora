@@ -53,14 +53,14 @@ class CLIConfig:
     kl_penalty_coef: float = 0.0
     max_steps: int | None = None
 
-    max_tokens: int = 32_768  # per turn (runner caps each turn at the remaining context)
+    max_tokens: int = 16_384  # per turn = real grader default max_output_tokens
     max_trajectory_tokens: int = 64_000  # Qwen3.5-9B on Tinker has a 64K context
     think_short_p0: float = 1.0
     think_short_anneal_steps: int = 6
-    max_turns: int = 5  # Vals endpoint check: answer (EXIT) within 5 turns
-    score_mode: str = "subtask"
+    max_turns: int = 100  # real grader (the 5-turn loop is only the endpoint smoke check)
+    score_mode: str = "fraction"  # real prompt: partial credit for each test passed
     turn_bonus: float = 0.04
-    turn_bonus_horizon: int = 6
+    turn_bonus_horizon: int = 30
     remove_constant_reward_groups: bool = True
 
     eval_every: int = 2

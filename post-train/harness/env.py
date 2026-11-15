@@ -35,34 +35,59 @@ from harness import sandbox
 from harness.problems import test_paths
 
 MAX_SUBMISSIONS = 50
-# The Vals endpoint check runs a 5-turn agent loop and fails if the model hasn't answered (EXIT) by then.
-# Every sampling call counts as a turn (incl. turns cut off by the per-turn token cap).
-MAX_TURNS = int(os.environ.get("HARNESS_MAX_TURNS", 5))
-MAX_SAMPLED_TOKENS = int(os.environ.get("HARNESS_MAX_SAMPLED_TOKENS", 200_000))  # per-episode spend cap
-SHOW = 2000
-EXIT_RE = re.compile(r"\bEXIT\b")
+# Mirrors the real grader: github.com/vals-ai/hackathon-post-training-agent (src/post_training_agent/*).
+# 100 turns; per-turn output cap is the submission's max_output_tokens (default 16384). Every sampling call
+# counts as a turn. (The 5-turn loop is only Vals' endpoint smoke check.)
+MAX_TURNS = int(os.environ.get("HARNESS_MAX_TURNS", 100))
+MAX_OUTPUT_TOKENS = int(os.environ.get("HARNESS_MAX_OUTPUT_TOKENS", 16384))
+MAX_SAMPLED_TOKENS = int(os.environ.get("HARNESS_MAX_SAMPLED_TOKENS", 400_000))  # our per-episode spend cap
+RUN_TIMEOUT = 10  # cpp_executor / sample runs are killed after 10 s
+OUTPUT_LIMIT = 4000
+EXIT_RE = re.compile(r"\bEXIT\b", re.IGNORECASE)
+MALFORMED_TOOL_CALL_PROMPT = "Your last tool call was malformed and could not be parsed. Retry it with valid arguments."
 
-SYSTEM_PROMPT = """You are an expert competitive programmer. You will solve one hard competitive programming problem in C++20.
+# Verbatim INSTRUCTIONS_PROMPT of the real harness (sent as the user message; there is no system prompt).
+INSTRUCTIONS_PROMPT = """
+You will solve a competitive programming problem.
 
-The solution is compiled with: g++ -std=c++20 -O2 -include bits/stdc++.h
-It must read from standard input and write to standard output.
+Write your solution as a complete C++20 program that reads standard input and writes standard output. Enclose code in three backticks, for example:
 
-You have two tools:
-- run_cpp: compile a C++ program and run it on any input you choose. Use it to test ideas, check the samples, compare against a brute force, and measure speed on large inputs.
-- submit: submit a full solution. It is judged on the sample tests only and you see the result. You may submit up to 50 times.
+```
+[your code here]
+```
 
-Your LAST submission that compiles is graded on hidden tests (small tests are worth 40 points, large tests 60 points), under the time and memory limits in the statement. Make sure your final submission is your best, fastest, correct solution.
+You have two tools. cpp_executor compiles a program and runs it on stdin you choose, for experiments, brute forces and stress tests. submission saves a solution as your answer and runs it on the sample tests from the statement. Your last submission that compiles is graded on hidden tests, under the time limit, with partial credit for each test it passes.
 
-You have at most {max_turns} turns in total (every reply counts as a turn), so plan to test and submit early.
-When you are finished, reply with EXIT (and no tool call). Fewer turns is better."""
+You may make at most 50 submissions in at most 100 turns. When you are done and do not want to submit again, respond with 'EXIT'.
+
+The problem statement follows:
+{question}
+"""
+SYSTEM_PROMPT = ""  # kept for backwards compatibility (the real harness has no system prompt)
 
 
-def _trunc(s: str, n: int = SHOW) -> str:
-    return s if len(s) <= n else s[:n] + f"\n...[truncated {len(s) - n} chars]"
+def simple_extract_code(model_output: str) -> str:
+    """Real harness: code = the last block between triple backticks (else the raw text)."""
+    lines = model_output.split("\n")
+    idx = [i for i, line in enumerate(lines) if "```" in line]
+    if len(idx) < 2:
+        return ""
+    return "\n".join(lines[idx[-2] + 1: idx[-1]])
+
+
+def _extract(code: str) -> str:
+    return simple_extract_code(code) or code
+
+
+def _clip(text: str) -> str:
+    return text if len(text) <= OUTPUT_LIMIT else text[:OUTPUT_LIMIT] + f"\n... [{len(text) - OUTPUT_LIMIT} more chars]"
+
+
+_trunc = _clip  # old name
 
 
 class CPTools:
-    """Stateful tools for one episode."""
+    """Stateful tools for one episode; names, arguments, descriptions and outputs mirror the real harness."""
 
     def __init__(self, problem: dict):
         self.p = problem
@@ -72,77 +97,82 @@ class CPTools:
         self.infra_errors = 0
 
     @tool
-    async def run_cpp(
+    async def cpp_executor(
         self,
-        code: Annotated[str, "Complete C++20 program (with main) to compile and run."],
-        input: Annotated[str, "Text passed to the program on standard input."] = "",
+        cpp_code: Annotated[str, "The C++20 program, optionally inside a code block."],
+        stdin: Annotated[str, "Text passed to the program on standard input."] = "",
     ) -> ToolResult:
-        """Compile a C++20 program and run it on the given standard input. Returns stdout, stderr, exit code and running time."""
+        """Compile a C++20 program (g++ -O2) and run it once with the given stdin. Returns stdout, stderr and the exit code. Runs are killed after 10 seconds. Use it for experiments, brute-force checkers and generators."""
         self.n_runs += 1
+        code = _extract(cpp_code)
+        if not code.strip():
+            return simple_tool_result("No C++ code found in the input")
         try:
             comp = await sandbox.compile_cpp(code)
             if not comp.ok:
-                return simple_tool_result(json.dumps({"compiled": False, "compile_error": _trunc(comp.error)}))
-            # a generous limit for experiments; the statement's limit is reported for comparison
-            r = await sandbox.run_stdin(comp.binary, input, max(10.0, self.p["time_limit"] * 3), self.p["memory_limit"])
+                return simple_tool_result(f"Compilation failed:\n{_clip(comp.error)}")
+            r = await sandbox.run_stdin(comp.binary, stdin, RUN_TIMEOUT, self.p["memory_limit"])
         except sandbox.SandboxError:
             self.infra_errors += 1
-            return simple_tool_result(json.dumps({"error": "Temporary infrastructure error (not your code). Please retry."}))
-        return simple_tool_result(json.dumps({
-            "compiled": True, "status": r.status, "exit_code": r.exit_code, "time_seconds": r.time_s,
-            "time_limit_seconds": self.p["time_limit"], "stdout": _trunc(r.stdout), "stderr": _trunc(r.stderr, 1000),
-        }))
+            return simple_tool_result("Temporary infrastructure error (not your code). Please retry.")
+        if r.status == "TLE":
+            return simple_tool_result(f"Execution timed out after {RUN_TIMEOUT} seconds")
+        return simple_tool_result(json.dumps({"exit_code": r.exit_code, "stdout": _clip(r.stdout),
+                                              "stderr": _clip(r.stderr)}))
 
     @tool
-    async def submit(
+    async def submission(
         self,
-        code: Annotated[str, "Complete C++20 solution to submit."],
+        cpp_code: Annotated[str, "The full C++20 solution, optionally inside a code block."],
     ) -> ToolResult:
-        """Submit a solution. It is judged on the sample tests only; your last submission that compiles is graded on the hidden tests."""
+        """Submit a complete C++20 solution. It is compiled, run on the sample tests from the statement, and saved as your final answer; your last submission that compiles is the one graded on the hidden tests. Only sample results are reported, never hidden test results."""
         if self.n_submissions >= MAX_SUBMISSIONS:
-            return simple_tool_result(json.dumps({"error": f"Maximum submissions ({MAX_SUBMISSIONS}) reached."}))
+            return simple_tool_result(f"Submission limit of {MAX_SUBMISSIONS} reached; your last accepted "
+                                      "submission stands.", should_stop=True)
+        code = _extract(cpp_code)
+        if not code.strip():
+            return simple_tool_result("No C++ code found in the input")
         try:
             comp = await sandbox.compile_cpp(code)
-        except sandbox.SandboxError:  # not counted, and must not leave last_compiled_code stale silently
+        except sandbox.SandboxError:  # not counted
             self.infra_errors += 1
-            return simple_tool_result(json.dumps({"error": "Temporary infrastructure error; this submission was not "
-                                                           "counted. Please submit again."}))
+            return simple_tool_result("Temporary infrastructure error; this submission was not counted. "
+                                      "Please submit again.")
         self.n_submissions += 1
         remaining = MAX_SUBMISSIONS - self.n_submissions
         if not comp.ok:
-            return simple_tool_result(json.dumps({
-                "compiled": False, "compile_error": _trunc(comp.error), "submissions_remaining": remaining,
-                "note": "This submission did not compile, so it will not be graded.",
-            }))
+            return simple_tool_result(f"Compilation failed:\n{_clip(comp.error)}\nNot saved; your previous submission "
+                                      f"stands. Submissions remaining: {remaining}", should_stop=remaining == 0)
         self.last_compiled_code = code
-        # Judge samples exactly like hidden tests: inside the sandbox, with the problem's checker if any.
-        checker = sandbox.tests_dir() / self.p["checker"] if self.p.get("checker") else None
         try:
-            runs = await sandbox.run_tests_inline(comp.binary, [tuple(x) for x in self.p["samples"]],
-                                                  self.p["time_limit"], self.p["memory_limit"], checker=checker,
-                                                  keep_stdout=True)
-        except sandbox.SandboxError:  # the code compiled, so it IS the graded submission now
+            runs = await sandbox.run_tests_inline(comp.binary, [tuple(x) for x in self.p["samples"]], RUN_TIMEOUT,
+                                                  self.p["memory_limit"], keep_stdout=True)
+        except sandbox.SandboxError:
             self.infra_errors += 1
-            return simple_tool_result(json.dumps({"compiled": True, "submissions_remaining": remaining,
-                                                  "error": "Submission recorded, but the sample check hit a temporary "
-                                                           "infrastructure error."}))
-        results = []
-        for i, ((_, exp), r) in enumerate(zip(self.p["samples"], runs), 1):
-            ok = bool(r.passed)
-            entry = {"sample": i, "verdict": "AC" if ok else r.status, "time_seconds": r.time_s}
-            if not ok:
-                entry.update({"your_output": _trunc(r.stdout, 800), "stderr": _trunc(r.stderr, 400)})
-                if checker is not None:
-                    entry["note"] = "Several answers may be valid; a checker rejected your output."
-                    entry["example_correct_output"] = _trunc(exp, 800)
-                else:
-                    entry["expected_output"] = _trunc(exp, 800)
-            results.append(entry)
-        passed = sum(e["verdict"] == "AC" for e in results)
-        return simple_tool_result(json.dumps({
-            "compiled": True, "samples_passed": f"{passed}/{len(results)}", "results": results,
-            "submissions_remaining": remaining,
-        }))
+            return simple_tool_result(json.dumps({"saved": True, "samples": {}, "submissions_remaining": remaining,
+                                                  "note": "sample check hit a temporary infrastructure error"}))
+        samples = {}
+        for i, r in enumerate(runs, 1):
+            if r.passed:
+                v = "passed"
+            elif r.status == "TLE":
+                v = "time limit exceeded"
+            elif r.status in ("RE", "MLE", "OLE"):
+                v = f"runtime error (exit code {r.exit_code}): {_clip(r.stderr)}"
+            else:
+                v = f"wrong answer, got:\n{_clip(r.stdout)}"
+            samples[f"sample_{i}"] = v
+        return simple_tool_result(json.dumps({"saved": True, "samples": samples, "submissions_remaining": remaining}),
+                                  should_stop=remaining == 0)
+
+    # old names, so older scripts keep working
+    @property
+    def run_cpp(self):
+        return self.cpp_executor
+
+    @property
+    def submit(self):
+        return self.submission
 
 
 def sample_files(problem: dict) -> list[tuple[Path, Path]]:
@@ -236,20 +266,21 @@ def hint_text(reference_code: str, level: float) -> str:
 
 
 THINK_SHORT = ("\n\nThink briefly and concretely. Once you have a candidate approach, stop reasoning and call "
-               "run_cpp to test it instead of deliberating at length. Never restate the same idea twice; "
+               "cpp_executor to test it instead of deliberating at length. Never restate the same idea twice; "
                "if you are going in circles, write the code and test it.")
 
 
 def initial_messages(problem: dict, renderer: Renderer, tools: CPTools, hint: str = "",
                      system_extra: str = "", max_turns: int = MAX_TURNS) -> list[Message]:
-    specs = [tools.run_cpp.to_spec(), tools.submit.to_spec()]
-    system = SYSTEM_PROMPT.format(max_turns=max_turns) + system_extra
-    prefix = renderer.create_conversation_prefix_with_tools(tools=specs, system_prompt=system)
-    return prefix + [{"role": "user", "content": problem["statement"] + hint}]
+    """Like the real harness: tool declarations (no system text) + INSTRUCTIONS_PROMPT with the statement.
+    system_extra (e.g. the RL think-short cue) is the only thing we ever add as system text."""
+    specs = [tools.cpp_executor.to_spec(), tools.submission.to_spec()]
+    prefix = renderer.create_conversation_prefix_with_tools(tools=specs, system_prompt=system_extra.strip())
+    return prefix + [{"role": "user", "content": INSTRUCTIONS_PROMPT.format(question=problem["statement"] + hint)}]
 
 
 def build_env(problem: dict, renderer: Renderer, *, max_turns: int = MAX_TURNS,
-              max_trajectory_tokens: int = 64_000, max_generation_tokens: int = 32_768,
+              max_trajectory_tokens: int = 64_000, max_generation_tokens: int = MAX_OUTPUT_TOKENS,
               max_sampled_tokens: int = MAX_SAMPLED_TOKENS, score_mode: str = "subtask", hint: str = "",
               system_extra: str = "") -> tuple[EnvFromMessageEnv, ValsMessageEnv]:
     tools = CPTools(problem)
@@ -262,12 +293,13 @@ def build_env(problem: dict, renderer: Renderer, *, max_turns: int = MAX_TURNS,
         return g["score"] / 100.0, {k: float(v) for k, v in g.items() if isinstance(v, (int, float, bool))}
 
     msg_env = ValsMessageEnv(
-        tools=[tools.run_cpp, tools.submit],
+        tools=[tools.cpp_executor, tools.submission],
         initial_messages=initial_messages(problem, renderer, tools, hint, system_extra, max_turns),
         max_turns=max_turns,
         reward_fn=reward_fn,
         tool_execution="sequential",
-        parse_error_policy=ParseErrorPolicy(max_consecutive=2),
+        # real harness: retry prompt after a malformed call; the 3rd consecutive one ends the task
+        parse_error_policy=ParseErrorPolicy(max_consecutive=2, retry_message_template=MALFORMED_TOOL_CALL_PROMPT),
         cp_tools=tools,
         result=holder,
         instructed=bool(system_extra),

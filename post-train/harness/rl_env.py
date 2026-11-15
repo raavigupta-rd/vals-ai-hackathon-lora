@@ -43,10 +43,10 @@ class CPEnvGroupBuilder(EnvGroupBuilder):
     group_size: int
     max_turns: int = MAX_TURNS
     max_trajectory_tokens: int = 64_000
-    max_generation_tokens: int = 32_768
-    score_mode: str = "subtask"
+    max_generation_tokens: int = 16_384
+    score_mode: str = "fraction"
     turn_bonus: float = 0.04
-    turn_bonus_horizon: int = MAX_TURNS + 1
+    turn_bonus_horizon: int = 30
     hint: str = ""  # eval-only truncation hint appended to the statement
     tag: str = "train"
     # "think short" system instruction given to each rollout with this probability (annealed to 0 over
@@ -133,10 +133,10 @@ class CPDatasetBuilder(RLDatasetBuilder):
     seed: int = 0
     max_turns: int = MAX_TURNS
     max_trajectory_tokens: int = 64_000
-    max_generation_tokens: int = 32_768
-    score_mode: str = "subtask"
+    max_generation_tokens: int = 16_384
+    score_mode: str = "fraction"
     turn_bonus: float = 0.04
-    turn_bonus_horizon: int = MAX_TURNS + 1
+    turn_bonus_horizon: int = 30
     exclude_ids: str = ""  # comma-separated problem ids to skip (e.g. eval overlap)
     eval_group_size: int = 4  # unhinted rollouts per held-out problem (tag "heldout")
     solutions_path: str | None = None  # if set, add 1 hinted rollout per held-out problem (tag "hinted")

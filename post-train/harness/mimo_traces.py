@@ -28,7 +28,7 @@ from tinker_cookbook.tool_use.tools import handle_tool_call
 from transformers import AutoTokenizer
 
 from harness import sandbox
-from harness.env import EXIT_RE, SYSTEM_PROMPT, CPTools, grade_with_retry
+from harness.env import EXIT_RE, INSTRUCTIONS_PROMPT, CPTools, grade_with_retry
 from harness.problems import load
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -43,7 +43,7 @@ TEACHER_NOTE = """
 
 IMPORTANT - hard limit: you have exactly {max_turns} turns (assistant replies) for this task, including the final EXIT.
 Only your LAST submission that compiles is graded; if you never call submit you get 0 points.
-Plan: think through the algorithm first, write a complete solution, check it on the samples with run_cpp at most once
+Plan: think through the algorithm first, write a complete solution, check it on the samples with cpp_executor at most once
 or twice, and call submit by turn {submit_by} at the latest. After a successful submit, reply EXIT."""
 
 
@@ -56,10 +56,12 @@ def turn_reminder(used: int, max_turns: int) -> str:
             f"do not spend your remaining turns on more test runs.]")
 
 
-def parse_completion(text: str) -> tuple[str, str, list[dict], bool]:
+def parse_completion(text: str, thinking: bool = True) -> tuple[str, str, list[dict], bool]:
     """MiMo output -> (reasoning, visible text, tool calls, malformed?)."""
     t = text[len("<think>"):] if text.startswith("<think>") else text
-    if "</think>" in t:
+    if not thinking and "</think>" not in t:  # thinking off: the prompt already closed <think></think>
+        reasoning, rest = "", t
+    elif "</think>" in t:
         reasoning, rest = t.split("</think>", 1)
     else:  # cut off while still thinking
         reasoning, rest = t, ""
@@ -105,13 +107,12 @@ async def episode(problem: dict, sample: int, client: httpx.AsyncClient, tok, a,
         if budget.exceeded():
             return None
         tools = CPTools(problem)
-        tool_fns = {"run_cpp": tools.run_cpp, "submit": tools.submit}
+        tool_fns = {"cpp_executor": tools.cpp_executor, "submission": tools.submission}
         mimo_tools = [{"type": "function", "function": t.to_spec()} for t in tool_fns.values()]
-        system = SYSTEM_PROMPT.format(max_turns=a.max_turns)
+        msgs = [{"role": "user", "content": INSTRUCTIONS_PROMPT.format(question=problem["statement"])}]
         if a.teacher_steering:
-            system += TEACHER_NOTE.format(max_turns=a.max_turns, submit_by=max(1, a.max_turns - 2))
-        msgs = [{"role": "system", "content": system},
-                {"role": "user", "content": problem["statement"]}]
+            msgs.insert(0, {"role": "system", "content": TEACHER_NOTE.format(
+                max_turns=a.max_turns, submit_by=max(1, a.max_turns - 2)).strip()})
         turns, out_tok, stop, bad_streak = [], 0, "max_turns", 0
         t0 = time.time()
         for t in range(a.max_turns):
@@ -120,7 +121,7 @@ async def episode(problem: dict, sample: int, client: httpx.AsyncClient, tok, a,
                 stop = "output_budget"
                 break
             ids = tok.apply_chat_template(msgs, tools=mimo_tools, add_generation_prompt=True, tokenize=True,
-                                          return_dict=False)
+                                          return_dict=False, enable_thinking=a.thinking)
             if len(ids) + min(a.max_turn_tokens, left) > a.max_context:
                 stop = "context"
                 break
@@ -138,7 +139,7 @@ async def episode(problem: dict, sample: int, client: httpx.AsyncClient, tok, a,
                     await asyncio.sleep(10 * (attempt + 1))
             out_tok += n_out
             text = choice["text"]
-            reasoning, content, calls, malformed = parse_completion(text)
+            reasoning, content, calls, malformed = parse_completion(text, a.thinking)
             turn = {"reasoning": reasoning, "content": content, "tool_calls": calls, "tool_results": [],
                     "finish": choice.get("finish_reason"), "out_tokens": n_out}
             msgs.append({"role": "assistant", "content": content, "reasoning_content": reasoning,
@@ -229,6 +230,7 @@ if __name__ == "__main__":
     ap.add_argument("--budget", type=float, default=60.0, help="stop starting episodes past this est. GPU USD")
     ap.add_argument("--containers", type=int, default=4, help="GPU containers assumed for the cost estimate")
     ap.add_argument("--gpu", default="H100")
+    ap.add_argument("--no-thinking", dest="thinking", action="store_false", help="MiMo with thinking off")
     ap.add_argument("--no-teacher-steering", dest="teacher_steering", action="store_false",
                     help="disable the teacher-only turn-limit note and per-turn reminders")
     asyncio.run(main(ap.parse_args()))

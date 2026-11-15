@@ -24,7 +24,7 @@ from pathlib import Path
 IMAGE = os.environ.get("HARNESS_IMAGE", "gcc:14")
 CONTAINER = os.environ.get("HARNESS_CONTAINER", "cp-harness")
 WORK_DIR = Path(os.environ.get("HARNESS_WORK", Path(__file__).resolve().parent.parent / ".cache" / "work"))
-CXX_FLAGS = ["-std=c++20", "-O2", "-include", "bits/stdc++.h", "-static"]  # static: program runs chrooted in an empty dir
+CXX_FLAGS = ["-std=c++20", "-O2", "-pipe", "-static"]  # = real grader flags (no auto bits/stdc++.h) + -static for the chroot jail  # static: program runs chrooted in an empty dir
 COMPILE_TIMEOUT = 60.0
 DEFAULT_MEM = 1024 * 1024 * 1024  # 1 GiB, as in the Vals example problem
 

@@ -164,7 +164,7 @@ if __name__ == "__main__":
     ap.add_argument("--base-model", default=BASE_MODEL)
     ap.add_argument("--model-path", default=None, help="tinker:// sampler checkpoint")
     ap.add_argument("--renderer", default=None, help="e.g. qwen3_5 (thinking) or qwen3_5_disable_thinking")
-    ap.add_argument("--max-tokens", type=int, default=32768, help="per-turn generation cap")
+    ap.add_argument("--max-tokens", type=int, default=16384, help="per-turn generation cap (= grader max_output_tokens)")
     ap.add_argument("--max-context", type=int, default=64000)
     ap.add_argument("--max-turns", type=int, default=MAX_TURNS)
     ap.add_argument("--temperature", type=float, default=0.6)

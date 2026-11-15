@@ -21,7 +21,7 @@ import modal
 APP_NAME = "cp-harness"
 VOLUME_NAME = "cp-tests"
 HERE = Path(__file__).resolve().parent
-CXX_FLAGS = ["-std=c++20", "-O2", "-include", "bits/stdc++.h", "-static"]  # static: program runs chrooted in an empty dir
+CXX_FLAGS = ["-std=c++20", "-O2", "-pipe", "-static"]  # = real grader flags (no auto bits/stdc++.h) + -static for the chroot jail  # static: program runs chrooted in an empty dir
 
 image = (
     modal.Image.from_registry("gcc:14", add_python="3.12")

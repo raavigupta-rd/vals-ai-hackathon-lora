@@ -91,3 +91,57 @@ def test_build_cases_and_run(tmp_path):
     res = ck.run(cases, Echo(), "dep", tools=[], concurrency=1)
     assert res["n"] == 4 and 0 < res["valid_rate"] < 1 and "mean_count_errors" in res
     assert len(res["failures"]) <= 3
+
+
+def make_chain():
+    m1 = hand_msgs(hand=1)
+    t2, _ = w.teacher_pad(m1, version=2)
+    m2 = hand_msgs(prev_pad=t2, **HAND2)
+    t3, _ = w.teacher_pad(m2, version=2)
+    return {"key": ("m", 0), "msgs": {1: m1, 2: m2}, "teacher_prev": {1: "", 2: t2}}, t2, t3
+
+
+def test_self_chain_perfect_model_all_parse():
+    chain, t2, t3 = make_chain()
+    seen = []
+    answers = iter([t2, t3])
+
+    def fake(messages):
+        seen.append(messages)
+        return next(answers)
+
+    steps = ck.run_chain(chain, fake)
+    assert all(s["score"]["parses"] and s["score"]["count_errors"] == 0 for s in steps)
+    assert any(t2 in m.get("content", "") for m in seen[1] if isinstance(m.get("content"), str))
+    s = ck.summarize_chains([steps])
+    assert s["parse_rate_hand1"] == 1 and s["games_all_parse"] == 1 and s["first_break_hand"] == [None]
+
+
+def test_self_chain_junk_then_copy_never_parses():
+    chain, t2, _ = make_chain()
+    calls = []
+
+    def fake(messages):
+        calls.append(messages)
+        return "junk"
+
+    steps = ck.run_chain(chain, fake)
+    assert not any(s["score"]["parses"] for s in steps)
+    assert any("junk" in m.get("content", "") for m in calls[1] if isinstance(m.get("content"), str))
+    s = ck.summarize_chains([steps])
+    assert s["games_all_parse"] == 0 and s["first_break_hand"] == [1] and s["parse_rate_hand1"] == 0
+
+
+def test_self_chain_failed_call_keeps_previous_pad():
+    chain, t2, t3 = make_chain()
+    calls = []
+
+    def fake(messages):
+        calls.append(messages)
+        return None if len(calls) == 1 else t3
+
+    steps = ck.run_chain(chain, fake)
+    assert steps[0]["valid"] is False and steps[0]["score"] is None and steps[1]["valid"]
+    assert t2 not in str(calls[1]) and "junk" not in str(calls[1])
+    s = ck.summarize_chains([steps])
+    assert s["valid_rate"] == 0.5 and s["first_break_hand"] == [1]

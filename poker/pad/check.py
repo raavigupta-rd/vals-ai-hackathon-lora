@@ -137,6 +137,74 @@ def run(cases: list[dict], client, deployment: str, *, tools: list[dict], concur
             "failures": [{"hand": r["hand"], "valid": r["valid"], "score": r["score"], "raw": r["raw"][:800]} for r in bad[:3]]}
 
 
+def pick_chains(rows, *, games: int, hands: int, seed: int = 0) -> list[dict]:
+    """Real (match, seat) arena chains with a cleanup prompt for every hand 1..hands: {"key", "msgs": {hand: messages},
+    "teacher_prev": {hand: teacher v2 pad shown at the start of that hand}}."""
+    index = chain_index([r for r in rows if r.get("kind") == "cleanup" and r.get("source") == "arena"])
+    found = []
+    for key in sorted((k for k in index if isinstance(k, tuple)), key=str):
+        if all(h in index[key] for h in range(1, hands + 1)) and teacher_pad_at(index, *key, hands, 2) is not None:
+            found.append({"key": key, "msgs": {h: index[key][h] for h in range(1, hands + 1)},
+                          "teacher_prev": {h: teacher_pad_at(index, *key, h, 2) for h in range(1, hands + 1)}})
+    return random.Random(seed).sample(found, min(games, len(found)))
+
+
+def run_chain(chain: dict, complete) -> list[dict]:
+    """Self-chained replay of one game. `complete(messages) -> pad text or None` (None: no valid update_scratchpad call).
+    Hand 1 starts with an empty pad; each next hand shows the pad the model wrote (the previous pad if the call failed).
+    Each written pad is scored against the teacher pad chained from hand 1 for the same history."""
+    pad, out = "", []
+    for hand in sorted(chain["msgs"]):
+        orig = chain["msgs"][hand]
+        written = complete(rewrite_messages(orig, pad))
+        teacher_prev = chain["teacher_prev"][hand]
+        score = pad_check(teacher_prev, rewrite_messages(orig, teacher_prev), written) if written is not None else None
+        out.append({"hand": hand, "valid": written is not None, "pad": written, "score": score})
+        if written is not None:
+            pad = written
+    return out
+
+
+def summarize_chains(chains: list[list[dict]]) -> dict:
+    steps = [s for c in chains for s in c]
+
+    def parsed(s):
+        return bool(s["score"] and s["score"]["parses"])
+
+    def rate(pick):
+        part = [s for s in steps if pick(s["hand"])]
+        return sum(parsed(s) for s in part) / len(part) if part else None
+
+    late = [s["score"]["count_errors"] for s in steps if s["hand"] >= 5 and parsed(s)]
+    firsts = []
+    for c in chains:
+        bad = [s["hand"] for s in c if not parsed(s)]
+        firsts.append(bad[0] if bad else None)
+    return {"games": len(chains), "steps": len(steps),
+            "valid_rate": sum(s["valid"] for s in steps) / len(steps) if steps else None,
+            "parse_rate_hand1": rate(lambda h: h == 1), "parse_rate_hands2_4": rate(lambda h: 2 <= h <= 4),
+            "parse_rate_hands5plus": rate(lambda h: h >= 5),
+            "mean_count_errors_hands5plus": sum(late) / len(late) if late else None, "n_parsed_hands5plus": len(late),
+            "games_all_parse": sum(f is None for f in firsts) / len(firsts) if firsts else None,
+            "first_break_hand": firsts}
+
+
+def self_chain(chains: list[dict], complete, *, concurrency: int = 8) -> dict:
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        results = list(pool.map(lambda c: run_chain(c, complete), chains))
+    summary = summarize_chains(results)
+    summary["transcripts"] = [[{"hand": s["hand"], "pad": s["pad"], "parses": bool(s["score"] and s["score"]["parses"]),
+                                "count_errors": s["score"]["count_errors"] if s["score"] else None} for s in c] for c in results]
+    return summary
+
+
+def client_complete(client, deployment: str, tools: list[dict]):
+    def complete(messages):
+        response = client.complete(deployment, chat_messages(messages), tools)
+        return _contents(response) if cleanup_ok(response) else None
+    return complete
+
+
 def _fmt(x) -> str:
     return "n/a" if x is None else f"{x:.2f}"
 
@@ -149,10 +217,32 @@ def main(argv=None) -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--joined", type=Path, default=ROOT / "data/arena/joined.jsonl")
     ap.add_argument("--concurrency", type=int, default=8)
+    ap.add_argument("--self-chain", action="store_true", help="replay whole games with the model's own previous pad")
+    ap.add_argument("--games", type=int, default=8)
+    ap.add_argument("--hands", type=int, default=12)
     ap.add_argument("--json", action="store_true", help="print the raw result dicts as JSON")
     a = ap.parse_args(argv)
     with a.joined.open(encoding="utf-8") as stream:
         rows = [r for r in map(json.loads, stream) if r.get("kind") == "cleanup" and r.get("source") == "arena"]
+    if a.self_chain:
+        chains = pick_chains(rows, games=a.games, hands=a.hands, seed=a.seed)
+        print(f"{len(chains)} chains of {a.hands} hands", file=sys.stderr)
+        client, tools = HttpClient(load_api_key()), chat_tools()
+        for dep in a.deployment:
+            res = self_chain(chains, client_complete(client, dep, tools), concurrency=a.concurrency)
+            if a.json:
+                print(json.dumps({"deployment": dep, **res}, indent=1))
+                continue
+            print(f"== {dep} self-chain ({res['games']} games, {res['steps']} pads)")
+            for key in ("valid_rate", "parse_rate_hand1", "parse_rate_hands2_4", "parse_rate_hands5plus",
+                        "mean_count_errors_hands5plus", "games_all_parse"):
+                print(f"{key}: {_fmt(res[key])}")
+            print(f"first_break_hand per game: {res['first_break_hand']}")
+            if res["transcripts"]:
+                print("--- game 1 transcript")
+                for s in res["transcripts"][0]:
+                    print(f"[hand {s['hand']}] parses={s['parses']} count_errors={s['count_errors']}\n{s['pad']}")
+        return 0
     cases = build_cases(rows, n=a.n, n_first=a.n_first, seed=a.seed)
     print(f"{len(cases)} cases ({sum(c['hand'] == 1 for c in cases)} hand-1)", file=sys.stderr)
     client, tools = HttpClient(load_api_key()), chat_tools()

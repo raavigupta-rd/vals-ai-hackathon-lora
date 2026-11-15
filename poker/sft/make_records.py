@@ -551,6 +551,13 @@ def main() -> None:
                         help="drop action targets whose reasoning is longer than this (0 = keep all)")
     parser.add_argument("--pad-version", type=int, choices=(1, 2), default=1,
                         help="writer version for --rewrite-pads: 2 = head-heavy exploit pad (poker/pad/writer.py)")
+    parser.add_argument("--clean", action="store_true",
+                        help="drop records the audit filters reject (poker/sft/clean.py): action without a v2 pad, bad pad_teacher "
+                             "pads, suitedness errors, illegal targets, first-in folds in the RFI chart, bad folds, leakage, "
+                             "excess 'wait'; reports per-filter counts by source")
+    parser.add_argument("--pad-read-line", action="store_true",
+                        help="put a 'Pad: ...' line (the pad's exploit lines that matter for this decision) at the top of every "
+                             "action reasoning that has a v2 pad; below the Facts line when --fact-header is on")
     parser.add_argument("--fact-header", action="store_true",
                         help="prepend a code-computed 'Facts: position, hand, board, made hand, price, stack, rank' line "
                              "(poker/facts.py) to every action-turn target reasoning")
@@ -635,6 +642,14 @@ def main() -> None:
         records, stats["hallucination"] = drop_hallucinated(records)
     if args.max_reasoning_chars:
         records, stats["too_long"] = drop_long(records, args.max_reasoning_chars)
+    if args.clean:
+        from poker.sft.clean import clean
+
+        records, stats["clean"] = clean(records)
+    if args.pad_read_line:
+        from poker.sft.clean import add_pad_read_line
+
+        records, stats["pad_read_line"] = add_pad_read_line(records)
     if args.fact_header:
         records, stats["fact_header"] = add_fact_headers(records)
     if args.cleanup_ratio > 0:

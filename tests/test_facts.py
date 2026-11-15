@@ -301,3 +301,51 @@ def test_last_claim_per_kind_and_self_correction_markers():
     assert contradictions("I have AJo. I have AJs.", g)
     # different kinds do not overwrite each other
     assert contradictions("I have a set. I'm on the button.", f)
+
+
+# ---- suitedness claims about our own cards ----
+
+def _suit_facts(hole):
+    return compute_facts(prompt(hole=hole))
+
+
+@pytest.mark.parametrize("hole,text", [
+    ("5c Qc", "Hand strength: 5c Qc is offsuit, no pair, no playability."),
+    ("Qc 5c", "5c Qc is offsuit"),
+    ("Ah 2h", "I have ace-rag offsuit, which is weak."),
+    ("Ah 2h", "Ace-rag offsuit is a fold here."),
+    ("Kd Qs", "KQ suited is a fine hand to raise."),
+    ("Kd Qs", "I hold KQ suited."),
+    ("Kd Qs", "My hand is suited and connected."),
+    ("Ah 2h", "My cards are offsuit."),
+    ("Ah 2h", "I have an offsuit hand."),
+    ("Ah 2h", "A2 off-suit is weak."),
+    ("Ah 2h", "A2 unsuited is weak."),
+])
+def test_suitedness_claim_that_the_cards_disprove_is_flagged(hole, text):
+    found = contradictions(text, _suit_facts(hole))
+    assert any(c.startswith("suited") for c in found), found
+
+
+@pytest.mark.parametrize("hole,text", [
+    ("5c Qc", "5c Qc is suited, so Q5s has flush potential."),
+    ("Ah 2h", "Ace-rag suited, a playable bluff-catcher."),
+    ("Kd Qs", "KQ offsuit is fine to open."),
+    ("Kd Qs", "Seat2 has KQ suited, I think."),            # about an opponent
+    ("Kd Qs", "The opponent shows KQ suited at showdown."),
+    ("Ah 2h", "The board is two-tone, so a flush draw is possible."),
+    ("Ah 2h", "If A2 were offsuit I would fold."),         # hypothetical
+    ("Kd Qs", "Wait, 5c Qc is suited? No, KQ offsuit."),   # self-correction sentence skipped
+    ("Ah 2h", "Suited connectors play well against a caller."),   # generic talk, not our cards
+    ("Ah Ad", "Pocket aces offsuit is the only way to hold them."),  # pocket pair: never flagged here
+    ("Ah 2h", "A2s, suited ace, wheel potential."),
+    ("Ah 2h", "I raise because the table folds."),
+])
+def test_suitedness_talk_that_is_right_or_not_about_our_cards_is_not_flagged(hole, text):
+    found = contradictions(text, _suit_facts(hole))
+    assert not any(c.startswith("suited") for c in found), found
+
+
+def test_only_the_last_suitedness_claim_counts():
+    facts = _suit_facts("5c Qc")
+    assert not any(c.startswith("suited") for c in contradictions("5c Qc is offsuit. Hmm. 5c Qc is suited.", facts))

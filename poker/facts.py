@@ -318,6 +318,44 @@ def _check_outs(sentence: str, facts: dict, out: list[tuple[str, str | None]]) -
         out.append(("outs", f"outs: says {match[1]} but the cards have {truth}" if abs(int(match[1]) - truth) > 2 else None))
 
 
+_RANK_WORDS = {"A": "aces?", "K": "kings?", "Q": "queens?", "J": "jacks?", "T": "tens?", "9": "nines?", "8": "eights?",
+               "7": "sevens?", "6": "sixes?", "5": "fives?", "4": "fours?", "3": "threes?|trey", "2": "twos?|deuces?"}
+_SUIT_WORD = r"(?:(?P<off>off-?suit(?:ed)?|unsuited)|(?P<on>(?<![-\w])suited))\b"
+_SUIT_GAP = r"[\s,:(\-\u2014]*(?:(?:is|are|a|an|the|hand|combo|here|it's|its|which is|but|only|just|as)\s+){0,3}"
+_SUIT_FIRST = [
+    re.compile(r"\b(?:my|our)\s+(?:starting\s+|hole\s+)?(?:hand|cards|holding)\b[^.;\n]{0,30}?\b" + _SUIT_WORD, re.I),
+    re.compile(r"\bI(?:'ve|\u2019ve|\s+(?:have|hold|got|was dealt)|\s+am holding|'m holding)\s+(?:got\s+)?(?:(?:an?|the)\s+)?"
+               r"(?:[\w-]+\s+){0,3}?\b" + _SUIT_WORD, re.I),
+]
+_SUIT_OPPONENT = re.compile(r"\b(?:opponents?|villains?|seat\s*\d|they|he|she|their|his|her|him|players?|others|everyone|shows?|showed)\b", re.I)
+_SUIT_GENERIC = re.compile(r"\b(?:than|vs|versus|compared|better|worse|stronger|weaker|beats?|dominat\w*|range|connectors?)\b", re.I)
+
+
+def _rank_alias(rank: str) -> str:
+    return f"(?-i:{rank})|{_RANK_WORDS[rank]}"
+
+
+def _suit_patterns(hole: list[str]) -> list[re.Pattern]:
+    """Phrases that name our own two cards (exact cards, rank letters or words), each followed by a suited/offsuit word."""
+    (a, b) = sorted(hole, key=lambda c: RANKS.index(c[0]), reverse=True)
+    hi, lo = f"(?:{_rank_alias(a[0])})", f"(?:{_rank_alias(b[0])}" + ("|rags?|junk|trash" if RANKS.index(b[0]) < RANKS.index("T") else "") + ")"
+    exact = rf"(?:\b{a}[\s,/&-]*{b}|\b{b}[\s,/&-]*{a})\b"
+    ranks = rf"(?<!\w)(?:{hi}[- ]?{lo}|{lo}[- ]?{hi})(?!\w)"
+    return [re.compile(f"(?:{exact}|{ranks}){_SUIT_GAP}{_SUIT_WORD}", re.I)]
+
+
+def _check_suit(sentence: str, facts: dict, out: list[str]) -> None:
+    """Claims that our own hole cards are suited/offsuit. Only the last such claim in the reply counts (see caller)."""
+    hole = facts["hole"]
+    if hole[0][0] == hole[1][0] or _SUIT_GENERIC.search(sentence):
+        return
+    matches = [m for p in _suit_patterns(hole) + _SUIT_FIRST for m in p.finditer(sentence)]
+    matches = [m for m in matches if not _SUIT_OPPONENT.search(sentence[:m.start()]) and not _HYPO.search(sentence[:m.start()])]
+    kinds = {"off" if m.group("off") else "on" for m in matches}
+    if len(kinds) == 1:
+        out.append(kinds.pop())
+
+
 _CORRECTING = re.compile(r"\b(?:wait|actually|correction)\b|\bno,", re.I)
 
 
@@ -327,10 +365,12 @@ def contradictions(reasoning: str, facts: dict | None) -> list[str]:
         return []
     checked: list[tuple[str, str | None]] = []
     claims: list[str] = []
+    suit_claims: list[str] = []
     for sentence in _sentences(reasoning):
         if _CORRECTING.search(sentence):
             continue  # "wait", "actually", "no,": the writer is fixing an earlier claim
         claims += _position_claims(sentence)
+        _check_suit(sentence, facts, suit_claims)
         _check_hand(sentence, facts, checked)
         _check_outs(sentence, facts, checked)
     # Like position, only the last stated claim of each kind counts.
@@ -339,6 +379,10 @@ def contradictions(reasoning: str, facts: dict | None) -> list[str]:
     # Only the last stated position counts: "I'm in the SB... wait, I'm the BTN" is a self-correction.
     if claims and not _POS_OK[claims[-1]] & set(facts["position"].split("/")):
         out.append(f"position: says {claims[-1]} but we are {facts['position']}")
+    truly_suited = facts["hole"][0][1] == facts["hole"][1][1]
+    if suit_claims and (suit_claims[-1] == "on") != truly_suited:
+        out.append(f"suited: says {'suited' if suit_claims[-1] == 'on' else 'offsuit'} but {' '.join(facts['hole'])} is "
+                   f"{'suited' if truly_suited else 'offsuit'}")
     pair = re.fullmatch(r"([2-9TJQKA])\1", facts["hole_code"])
     if pair and re.search(r"\b" + pair[1] * 2 + r"s\b", reasoning) and not any(c.startswith("suited") for c in out):
         out.append("suited: pocket pair called suited")

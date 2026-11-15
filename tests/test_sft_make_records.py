@@ -749,3 +749,39 @@ def test_drop_long_drops_only_long_action_targets():
     kept, stats = drop_long([rec(100), rec(5000), rec(2999, "teacher_resampled"), cleanup], 3000)
     assert [len(r["target"]["reasoning"]) for r in kept] == [100, 2999, 9000]
     assert stats == {"dropped": {"self_clean": 1}}
+
+
+# ---- --clean and --pad-read-line ----
+
+def test_main_clean_and_pad_read_line_flags_run_before_the_fact_header(monkeypatch, tmp_path, capsys):
+    import sys
+
+    from poker import teacher
+    from poker.sft import make_records
+
+    monkeypatch.setattr(teacher, "EXPLOITS", set())
+    joined_path = tmp_path / "j.jsonl"
+    joined_path.write_text("")
+    monkeypatch.setattr(sys, "argv", ["x", "--joined", str(joined_path), "--db", str(tmp_path / "a.db"), "--cycle", "1",
+                                      "--out", str(tmp_path / "o.jsonl"), "--clean", "--pad-read-line", "--fact-header"])
+    make_records.main()
+    stats = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert stats["clean"]["in"] == 0 and stats["pad_read_line"]["with_pad"] == 0 and "fact_header" in stats
+    assert list(stats).index("clean") < list(stats).index("pad_read_line") < list(stats).index("fact_header")
+
+
+def test_add_fact_headers_is_idempotent_with_a_pad_line_and_goes_above_it():
+    from poker.sft.make_records import add_fact_headers
+
+    prompt = [{"role": "system", "content": "rules"}, {"role": "user", "content": (
+        "## Hand 3 of 30\nYour seat: 4 (position 2; 0 = small blind)\nStreet: preflop\nYour hole cards: 7h 2c\nBoard: -\n"
+        "Pot (including current bets): 3\nTable:\n  seat 0: seat0 [button] stack 199, bet 0\n  seat 1: seat1 stack 197, bet 1\n"
+        "  seat 2: seat2 stack 198, bet 2\n  seat 4: seat4 (you) stack 200, bet 0\n\nLegal actions: fold, call 2, raise to 4-200\n"
+        "Call submit_action with your decision.")}]
+    record = {"messages": prompt, "weight": 1.0, "source": "self_clean",
+              "target": {"reasoning": "Pad: nothing relevant\nFold.", "content": "",
+                         "tool_call": {"name": "submit_action", "arguments": {"action": "fold"}}}}
+    once, _ = add_fact_headers([record])
+    lines = once[0]["target"]["reasoning"].split("\n")
+    assert lines[0].startswith("Facts: ") and lines[1:] == ["Pad: nothing relevant", "Fold."]
+    assert add_fact_headers(once)[0] == once

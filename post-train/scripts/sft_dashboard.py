@@ -12,7 +12,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 RUNS = Path(__file__).resolve().parent.parent / "runs"
-DEFAULT_EVALS = ["ab5-think-on", "eval-qwengem", "eval-qwengemmasked"]
+DEFAULT_EVALS = ["ab5-think-on", "eval-lenz-mimo-sft", "eval-qwengem", "eval-qwengemmasked"]
+TRACES = RUNS.parent / "data" / "mimo_traces"
+HELDOUT = RUNS.parent / "data" / "synth_ioi" / "heldout.jsonl"
+TARGET_TRACES = 250
 MAX_TURNS = 5
 
 
@@ -63,6 +66,46 @@ def eval_summary(tag: str) -> dict | None:
     }
 
 
+def traces_summary() -> dict:
+    """MiMo teacher episodes (data/mimo_traces/*.jsonl): progress toward verified SFT traces + MiMo's own score."""
+    held = {json.loads(l)["id"] for l in HELDOUT.read_text().splitlines()} if HELDOUT.exists() else set()
+    rows = []
+    for f in sorted(TRACES.glob("*.jsonl")) if TRACES.exists() else []:
+        rows += [r | {"file": f.stem} for r in jsonl(f)]
+    if not rows:
+        return {"n": 0}
+    train = [r for r in rows if r["id"] not in held]
+    hrows = [r for r in rows if r["id"] in held]
+    verified = [r for r in train if r["score"] == 100 and all(t.get("finish") != "length" for t in r["turns_data"])]
+    per_problem = {}
+    for r in verified:
+        per_problem[r["id"]] = per_problem.get(r["id"], 0) + 1
+    usable = sum(min(4, v) for v in per_problem.values())  # sft_traces.py caps 4 per problem
+    stops = {}
+    for r in rows:
+        stops[r["stop"]] = stops.get(r["stop"], 0) + 1
+    by_file = {}
+    for r in rows:
+        d = by_file.setdefault(r["file"], {"n": 0, "full": 0})
+        d["n"] += 1
+        d["full"] += r["score"] == 100
+    n = len(rows)
+    return {
+        "n": n, "train_n": len(train), "verified": len(verified), "usable": usable, "target": TARGET_TRACES,
+        "problems_with_trace": len(per_problem),
+        "solve_rate": sum(r["score"] == 100 for r in rows) / n,
+        "small_only_rate": sum(r["score"] == 40 for r in rows) / n,
+        "exit_rate": stops.get("exit", 0) / n, "stops": stops, "by_file": by_file,
+        "heldout_n": len(hrows),
+        "heldout_score": st.mean(r["score"] for r in hrows) if hrows else None,
+        "heldout_se": (st.pstdev([r["score"] for r in hrows]) / len(hrows) ** 0.5) if len(hrows) > 1 else None,
+        "train_score": st.mean(r["score"] for r in train) if train else None,
+        "out_tok_median": st.median(r["out_tokens"] for r in rows),
+        "turns_hist": [sum(r["turns"] == k for r in rows) for k in range(1, MAX_TURNS + 1)],
+        "out_hist": hist([r["out_tokens"] for r in rows], [0, 4_000, 8_000, 16_000, 24_000, 32_001]),
+    }
+
+
 def hist(xs, edges):
     return [sum(edges[i] <= x < edges[i + 1] for x in xs) for i in range(len(edges) - 1)]
 
@@ -82,9 +125,21 @@ table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:ta
 th,td{padding:5px 8px;border-top:1px solid var(--line);text-align:right;white-space:nowrap} th:first-child,td:first-child{text-align:left}
 th{color:var(--mut);font-weight:600;border-top:none} .good{color:var(--good);font-weight:600} .bad{color:var(--bad);font-weight:600}
 code{font-size:11px;word-break:break-all;white-space:normal}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:0 0 12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpi b{display:block;font-size:22px;font-variant-numeric:tabular-nums} .kpi span{color:var(--mut);font-size:12px}
+.bar{height:14px;background:var(--line);border-radius:7px;overflow:hidden;margin:6px 0} .bar div{height:100%;background:var(--c1)}
 </style></head><body><main>
 <h1>SFT + eval dashboard</h1>
 <div class="mut" id="status">loading…</div>
+<h2>MiMo teacher traces (5 turns, ≤32K output tokens)</h2>
+<div class="kpis" id="tkpis"></div>
+<div class="grid">
+<div class="card"><h3>Verified traces for SFT (score 100, no cut-off turns, ≤4 per problem)</h3><div class="bar"><div id="tbar"></div></div><div class="mut" id="tbartxt"></div></div>
+<div class="card"><h3>Episodes by source</h3><table id="tfiles"></table></div>
+<div class="card"><h3>Turns per MiMo episode</h3><canvas id="c_tturns"></canvas></div>
+<div class="card"><h3>Output tokens per MiMo episode</h3><canvas id="c_tout"></canvas></div>
+</div>
 <h2>Held-out eval (5 turns, thinking on): finishes in time? short output?</h2>
 <div class="card"><table id="evtab"></table></div>
 <div class="grid" style="margin-top:12px">
@@ -110,6 +165,21 @@ function chart(id,type,labels,datasets,opts={}){
 const pct=v=>v==null?'–':(100*v).toFixed(0)+'%', num=(v,d=1)=>v==null?'–':Number(v).toFixed(d), k=v=>v==null?'–':(v/1000).toFixed(1)+'K';
 async function refresh(){
   const d=await (await fetch('/api/data')).json();
+  const t=d.traces||{n:0};
+  if(t.n){
+    document.getElementById('tkpis').innerHTML=[
+      ['Episodes',t.n,`${t.train_n} on train problems`],['Verified traces',t.verified,`${t.problems_with_trace} problems`],
+      ['Usable for SFT',t.usable,`target ${t.target}`],['MiMo full-solve rate',pct(t.solve_rate),`40-only ${pct(t.small_only_rate)}`],
+      ['MiMo held-out score',t.heldout_score==null?'–':num(t.heldout_score)+(t.heldout_se==null?'':' ± '+num(t.heldout_se)),`n=${t.heldout_n} · base 40.3`],
+      ['EXIT in time',pct(t.exit_rate),Object.entries(t.stops).map(([k,v])=>k+' '+v).join(' · ')],
+      ['Output / episode',k(t.out_tok_median),'median tokens']
+    ].map(([a,b,c])=>`<div class="kpi"><span>${a}</span><b>${b}</b><span>${c}</span></div>`).join('');
+    document.getElementById('tbar').style.width=Math.min(100,100*t.usable/t.target)+'%';
+    document.getElementById('tbartxt').textContent=`${t.usable} / ${t.target} usable (${t.verified} verified in total)`;
+    document.getElementById('tfiles').innerHTML='<tr><th>file</th><th>episodes</th><th>full solves</th></tr>'+Object.entries(t.by_file).map(([f,v])=>`<tr><td>${f}</td><td>${v.n}</td><td>${v.full}</td></tr>`).join('');
+    chart('c_tturns','bar',['1','2','3','4','5'],[{label:'MiMo',data:t.turns_hist}]);
+    chart('c_tout','bar',['<4K','4–8K','8–16K','16–24K','24–32K'],[{label:'MiMo',data:t.out_hist}]);
+  } else { document.getElementById('tkpis').innerHTML='<div class="mut">no MiMo episodes yet</div>'; }
   const ev=d.evals.filter(e=>e.n>0), base=ev.find(e=>e.tag==='ab5-think-on');
   const cls=(v,b,lowerBetter)=>b==null||v==null?'':((lowerBetter?v<b:v>b)?'good':(v===b?'':'bad'));
   document.getElementById('evtab').innerHTML='<tr><th>run</th><th>n</th><th>score</th><th>solved</th><th>40-only</th><th>submitted</th><th>EXIT in time</th><th>hit 5-turn limit</th><th>ran out of tokens</th><th>tokens / rollout (median)</th><th>tokens / turn (median)</th></tr>'+
@@ -135,7 +205,8 @@ class H(BaseHTTPRequestHandler):
         if self.path.startswith("/api/data"):
             tags = list(DEFAULT_EVALS) + sorted(p.parent.name for p in RUNS.glob("eval-*/results.jsonl")
                                                 if p.parent.name not in DEFAULT_EVALS)
-            body = json.dumps({"evals": [eval_summary(t) for t in tags], "sft": sft_runs()}).encode()
+            body = json.dumps({"evals": [eval_summary(t) for t in tags], "sft": sft_runs(),
+                               "traces": traces_summary()}).encode()
             ctype = "application/json"
         else:
             body, ctype = PAGE.encode(), "text/html; charset=utf-8"

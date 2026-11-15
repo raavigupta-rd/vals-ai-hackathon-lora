@@ -39,6 +39,33 @@ Selection by Sunday 12:30 PM, final check/submission target 1:15 PM, and cutoff 
 | 4. Training loop | Placement-reward games, OPSD hints, simulated field. Train, eval against base, find leaks, repeat. | Sat night to Sun 12:30 PM |
 | 5. Final entry | Pick, check, submit by 1:15 PM (step 9f) | Sun |
 
+## The iteration cycle (decided Sat ~4:15 PM)
+
+Decisions from the user: the organizers confirmed we may use AC2 SFT (`SFTConfig`). Submissions go through the AC2
+console, clicked by A; Claude says when a checkpoint is ready. The GRPO pilot `train_b2dda65e96c4` finishes, then
+the training slot goes to this cycle. Two redundant base evals (`eval_e51ea5b4466a`, `eval_9f9ec615687b`) were
+stopped to free the laptop harness.
+
+```text
+entry in arena -> collect arena matches + our gateway traces (prompts and replies)
+  -> opponent profiles + teacher labels per decision
+  -> SFT (teacher-agreeing, short replies) and/or OPSD (per-decision hints), mixed with earlier cycles
+  -> deploy checkpoint -> gates -> A submits in the console -> repeat
+```
+
+Rules
+- **Enough data:** about 8 arena matches of the current entry, or 3 hours, whichever comes first. That is roughly 400 of our decisions and 2,000+ opponent decisions. Do not wait for more; frequent cycles beat big ones.
+- **Do not overtrain:** short runs (default learning rate, 10 to 20 steps), keep the step-10 and step-20 checkpoints, submit the better one. Each cycle continues from the previous winner.
+- **Weight earlier traces:** about 60% from the newest cycle and 40% from earlier cycles, with older cycles decaying. Newest traces match the current policy; older ones prevent forgetting and cover teams that change.
+- **Gates before submitting:** `play_local.py --opponents bots` with 0 failed decisions, and a paired quick eval not worse than the current entry. Ladder results are a diagnostic, not the gate.
+- **No leakage:** opponents' hidden cards and future outcomes may shape teacher labels and offline analysis, never the student's input.
+- **Labels are not outcomes:** a decision is a training target because the teacher prefers it, not because the hand won.
+
+Tooling (being built Sat 4:15 PM)
+- `poker/arena/`: collector polling pokerbots.ac every 10 minutes into `data/arena/arena.db`, per-team stats with sample sizes and intervals, and a gateway-trace puller that joins our arena decisions to their matches.
+- `poker/sft/`: SFT dataset builder and launcher (dry run first).
+- Existing: B's OPSD hint builder (`poker/hints.py`), trace audit (`poker/trace_quality.py`), run ledger.
+
 ## Finding: the token cap is the first leak
 
 In the first smoke games (Sat 3 PM), the house model (`ac-vals-model`) lost 18 of 68 decisions to invalid moves, and

@@ -24,6 +24,9 @@ explicitly guarantees harness GRPO/evals and data-only offline OPSD. It does not
 rules out online OPSD, custom images/launch arguments and SSH into training jobs. Confirm team access before
 relying on SFT, one_step OPSD, token-judge variants or private training interfaces.
 
+**Update, Sat Nov 14 ~4:15 PM:** the organizers confirmed to the user that our team may use `SFTConfig`. One_step
+OPSD, token-judge variants and private interfaces remain unconfirmed.
+
 ## Live inference logprob check
 
 Tested `https://inference.appliedcompute.com/v1/chat/completions` against the ready `vals-hackathon/base` deployment.

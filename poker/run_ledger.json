@@ -255,12 +255,57 @@
         ]
       },
       "observed_at": "2026-11-14T23:54:17.138732+00:00"
+    },
+    {
+      "id": "train_b2dda65e96c4",
+      "kind": "single_hand_grpo_pilot",
+      "status": "stopped",
+      "note": "Stopped at step 3 of 4 by user decision Sat 4:42 PM to free GPUs for SFT cycle 1; checkpoint saved at step 2."
+    },
+    {
+      "id": "train_cd8535c42ea5",
+      "kind": "sft_cycle1",
+      "dataset": "pokerbots-sft-c1",
+      "tasks": 229,
+      "steps": 10,
+      "checkpoint_every": 5,
+      "status": "succeeded",
+      "source": "teacher-judged base arena decisions (32 corrections x2, 8 agreements, 160 clean abstains)",
+      "checkpoints": {
+        "step5": "ckpt_a41b042b2a4d",
+        "step10": "ckpt_46cfa1869701"
+      },
+      "deployments": {
+        "sft-c1-s5": "pending",
+        "sft-c1-s10": "pending"
+      },
+      "finished_at": "2026-11-14T17:01-08:00"
+    },
+    {
+      "id": "train_5fe05c5914f4",
+      "kind": "sft_cycle2a",
+      "dataset": "pokerbots-sft-c2a",
+      "tasks": 635,
+      "steps": 12,
+      "checkpoint_every": 6,
+      "base_checkpoint": "ckpt_46cfa1869701",
+      "status": "running",
+      "source": "teacher v2 on base + early s10 arena traces; 85 corrections (76 own-words resampled from sft-c1-s10), 58 agreements, 429 clean"
     }
   ],
   "training_slot": {
-    "owner": "integration session",
-    "train_id": "train_b2dda65e96c4",
-    "rule": "Do not launch another training job until terminal."
+    "parallel": true,
+    "slots": [
+      {
+        "train_id": "train_5fe05c5914f4",
+        "kind": "sft_cycle2a"
+      },
+      {
+        "train_id": null,
+        "kind": "sft_cycle2b (teacher v3), pending"
+      }
+    ],
+    "rule": "Two 4-GPU SFT runs may run together while only base and sft-c1-s10 are deployed (2+4+4=10)."
   },
   "publication": {
     "combined_implementation": "593a185",
@@ -331,5 +376,44 @@
     "cutoff": "2026-11-15T14:00:00-08:00",
     "selection_target": "2026-11-15T12:30:00-08:00",
     "submission_target": "2026-11-15T13:15:00-08:00"
+  },
+  "gates": {
+    "base_ref": {
+      "file": "data/gate/base_ref.json",
+      "valid": 0.96,
+      "cutoff": 0.02,
+      "judged_agree": 0.53,
+      "judged_ci": [
+        0.4,
+        0.65
+      ],
+      "mixed_rate": 0.28
+    },
+    "c1": {
+      "file": "data/gate/c1.json",
+      "sft-c1-s10": {
+        "valid": 0.95,
+        "judged_agree": 0.62,
+        "diff_vs_base": 0.09,
+        "ci": [
+          -0.03,
+          0.19
+        ],
+        "mixed_rate": 0.28
+      },
+      "sft-c1-s5": {
+        "valid": 0.93,
+        "judged_agree": 0.47,
+        "deleted": true
+      },
+      "decision": "submit s10: fixes all-in calls (82% vs 64%), mixing intact; 3pt lower validity accepted on the practice ladder"
+    }
+  },
+  "arena_entry": {
+    "deployment": "vals-hackathon/sft-c1-s10",
+    "deployment_id": "infer_9a3071661253",
+    "checkpoint": "ckpt_46cfa1869701",
+    "submitted": "2026-11-14 ~17:40 PST by A in the console",
+    "previous": "vals-hackathon/base (infer_d3d2b6b92171), kept as gate reference"
   }
 }

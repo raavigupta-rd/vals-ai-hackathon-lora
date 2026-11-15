@@ -67,7 +67,9 @@ async def play(args: argparse.Namespace) -> dict:
         ]
         for i in range(1, rules.seats):
             if args.opponents == "bots":
-                players.append(ScriptedPlayer(f"seat{i}", random.Random(seed + i).choice(["random", "calling_station"]), seed))
+                kinds = args.bots.split(",") if args.bots else None
+                kind = kinds[(i - 1) % len(kinds)] if kinds else random.Random(seed + i).choice(["random", "calling_station"])
+                players.append(ScriptedPlayer(f"seat{i}", kind, seed))
             else:
                 theirs = opponent_params(params | {"opponent_model": args.opponent_model})
                 players.append(
@@ -88,11 +90,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--model", required=True, help="your deployment, <project>/<name>")
     parser.add_argument("--opponents", choices=["house", "bots"], default="house")
+    parser.add_argument("--bots", help="with --opponents bots: comma list of archetypes for seats 1.., e.g. shover,shover,nit")
     parser.add_argument("--opponent-model", default=HOUSE_MODEL, help="model for the other seats with --opponents house")
     parser.add_argument("--hands", type=int, help="hands in the game (default: the event's 30)")
     parser.add_argument("--seed", type=int)
     parser.add_argument("--out", type=Path, default=Path("runs"))
     args = parser.parse_args()
+    if args.bots:
+        from poker_harness.engine.scripted import ARCHETYPES
+
+        bad = [b for b in args.bots.split(",") if b not in ARCHETYPES]
+        if bad or args.opponents != "bots":
+            parser.error(f"--bots needs --opponents bots and archetypes from {ARCHETYPES}; got {args.bots}")
 
     log = asyncio.run(play(args))
     mine = [a for hand in log["hands"] for a in hand["actions"] if a["player"] == "seat0"]

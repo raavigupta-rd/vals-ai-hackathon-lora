@@ -53,3 +53,14 @@ def test_a_tool_calling_deployment_plays_a_clean_game(monkeypatch, tmp_path, cap
 def test_a_deployment_that_never_calls_the_tool_is_flagged(monkeypatch, tmp_path) -> None:
     with pytest.raises(SystemExit, match="every decision failed"):
         run(monkeypatch, tmp_path, False, "--opponents", "bots")
+
+
+def test_bots_flag_picks_archetypes(monkeypatch, tmp_path) -> None:
+    run(monkeypatch, tmp_path, True, "--opponents", "bots", "--bots", "shover,nit")
+    log = json.loads((tmp_path / "local-5.json").read_text())
+    assert log["hands"]
+
+
+def test_bots_flag_rejects_unknown_archetype(monkeypatch, tmp_path) -> None:
+    with pytest.raises(SystemExit):
+        run(monkeypatch, tmp_path, True, "--opponents", "bots", "--bots", "wizard")

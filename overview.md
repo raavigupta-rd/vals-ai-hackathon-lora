@@ -1,14 +1,17 @@
-# Where we are (Sat Nov 14, ~3:45 PM)
+# Where we are (Nov 14, shared-branch consolidation)
 
-Short version: setup is done, the base model is deployed and passes every check, baseline evals are running, and
-the first training run starts as soon as they finish. The full plan is in `plan.md`; this page is the summary.
+Setup is done, base smoke succeeded, and separate baseline evals and the bounded GRPO pilot are running.
+Both people now work on shared branch `poker`. Read `poker/run_ledger.json` for timestamped run state,
+`poker/STATUS.md` for results and remaining gates, and `plan.md` for the full plan. `README (2).md` adds strategy
+priorities: reliable decisions, replayable public trajectories, measured exploitation and held-out evaluation.
+Its conditional SFT/on-policy suggestions remain subject to the confirmed limits in `poker/CAPABILITIES.md`.
 
 ## The rules that shape everything
 
 - 6-max no-limit hold'em, 30-hand games, everyone starts with 200 chips, chips carry over, busted seats are out.
 - **We are ranked by final place, not by chips won.** Busting is the worst result.
-- The leaderboard before 2 PM Sunday is practice only. Each submission starts with a fresh rating, and submissions are unlimited.
-- **What counts:** one Official Tournament after 2 PM Sunday, played by every team's last submission (at most 15 teams).
+- The leaderboard before 2 PM PST Sunday is practice only. Each submission starts with a fresh rating, and submissions are unlimited.
+- **What counts:** one Official Tournament after 2 PM PST Sunday, played by every team's last submission (at most 15 teams).
 - Each decision may use up to 5,000 output tokens, thinking included. A reply that runs past that is played as check or fold.
 
 ## What's done
@@ -23,13 +26,21 @@ the first training run starts as soon as they finish. The full plan is in `plan.
 | Base submitted to the arena | Done by A, or doing it now |
 | Baseline evals: `eval_9f9ec615687b` (500 single hands), `eval_e51ea5b4466a` (200 games of 30 hands) | Running |
 
-All of A's work is on the `poker-a` branch.
+All A/B implementation is merged into shared `poker`. The original `poker-a` and `poker-b` branches are historical.
+Additional baseline runs are `eval_9e50f4198211` on `pokerbots-eval` and `eval_ce4924764f47` on `pokerbots-train`.
+The sole training job is `train_b2dda65e96c4`, a four-step single-hand GRPO pilot. A reviewed 24-decision offline
+OPSD pilot dataset is uploaded, but no OPSD training has been launched. No training improvement is established yet.
 
 ## What we learned
 
-1. **The arena publishes everything.** Each match has a public JSON file with every seat's hole cards (even hands that never reached showdown), every action, table talk, tokens used, and final places. We can see each team's exact range for every action. This is our biggest edge.
+1. **Public replays support offline opponent analysis.** Published JSON includes actions, table talk, token use,
+   final places and hole cards, including some never shown during play. Use samples to estimate ranges with
+   uncertainty; they do not reveal a team's exact policy. Never put unrevealed cards or future outcomes into
+   student observations. Player identity can condition the submitted model only when visible at inference.
 2. **The field is beatable.** In one match we inspected, a scripted "nit" house bot finished 1st (+84 BB), ahead of three teams running base Qwen.
-3. **Running out of tokens matters less than we thought.** Base Qwen in the arena uses about 650 to 700 tokens per decision and hit the cap in 0 to 7% of decisions. The 26% failure rate we saw at first came from our training opponent (`ac-vals-model`), a different model. That is still a problem for training, since our opponents fold for no reason a quarter of the time.
+3. **Measure base and opponents separately.** The high cutoff rate in the first house-model smoke was not a
+   measurement of base or the field. Base smoke later completed eight decisions with zero cutoffs and a 620.5-token
+   median. These small/partial observations do not establish population failure rates; full baseline audits remain pending.
 
 ## The approach
 
@@ -42,7 +53,8 @@ All of A's work is on the `poker-a` branch.
 
 **A (infra and RL)**
 1. Read the baseline eval results: cut-off rate, tokens per decision, mean place.
-2. Launch the first GRPO run, sizing the token budget from the game eval.
+2. Monitor `train_b2dda65e96c4`; do not launch a second training job. Evaluate its checkpoints against base before
+   longer training. Measure complete short-game transcripts before sizing placement-game budgets/timeouts.
 3. Move the harness to an always-on machine before the overnight runs.
 4. Rotate the connector credentials (they were exposed during setup).
 
@@ -52,10 +64,12 @@ All of A's work is on the `poker-a` branch.
 3. Turn the leaks into OPSD hints and into scripted opponent profiles (plan steps 5, 9b and 9c).
 
 **Both, Sunday**
-- Refresh opponent stats in the morning, pick the final model by 12:30 PM, check it, and submit by 1:15 PM. Submit nothing after it.
+- Refresh opponent stats in the morning, pick the final model by 12:30 PM PST, check it, and submit by 1:15 PM PST.
+  The confirmed cutoff is 2 PM PST Sunday, November 15. Require the official-rule 30-hand zero-failure check first.
 
 ## How we work
 
-- Each person has a branch (`poker-a`, `poker-b`); merge into `poker` through a reviewed PR.
+- Both people work on `poker`: fetch and pull with `--ff-only` before editing, coordinate overlapping files,
+  and commit/push completed work promptly. Do not resume work on the historical A/B branches.
 - Only A submits to the arena. Only one training job runs at a time (10-GPU quota).
 - `CLAUDE.md` makes every Claude session follow the lanes and agent rules in `plan.md`.

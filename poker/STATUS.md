@@ -34,6 +34,8 @@ graded rollouts had zero failures but identical rewards, so no learning benefit 
   been restarted**, so those additions are not yet active. Old smoke scores prove placement-aware grading is loaded,
   but not the exact source hash. No local harness/connector process was found. Ask the harness owner for its host
   and perform a coordinated idle-only update before placement-game training.
+  A's newly merged `overview.md` identifies the original harness as running on A's laptop; its exact host/process
+  revision still needs confirmation from A. That overview also notes moving it to an always-on host before overnight work.
 - Integration checks: 33 root tests passed; 26 grading/server tests passed after telemetry-only edits. Earlier
   full harness run passed 106 with one skip. A full base-trace 20-hint review/upload and checkpoint comparison
   remain pending. Teacher/Pluribus source and optional solver/probe work are explicitly deferred.

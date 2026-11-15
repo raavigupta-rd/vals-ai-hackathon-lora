@@ -17,6 +17,7 @@ KEYS = {
     "frac_mixed": "env/all/by_group/frac_mixed", "frac_all_bad": "env/all/by_group/frac_all_bad",
     "tokens_per_turn": "env/all/ac_tokens_per_turn", "cost": "cost/cumulative_usd",
     "step_seconds": "time/total",
+    "heldout": "test/env/heldout/score", "hinted": "test/env/hinted/score",
 }
 
 
@@ -75,7 +76,7 @@ code{font-size:12px;word-break:break-all} table{width:100%;border-collapse:colla
 <div class="mut" id="status">loading…</div>
 <div class="kpis" id="kpis"></div>
 <div class="grid">
-<div class="card"><h3>Mean score (0–100)</h3><canvas id="c_score"></canvas></div>
+<div class="card"><h3>Score (0–100): train vs held-out</h3><canvas id="c_score"></canvas></div>
 <div class="card"><h3>Outcome rates</h3><canvas id="c_rates"></canvas></div>
 <div class="card"><h3>Turns per episode</h3><canvas id="c_turns"></canvas></div>
 <div class="card"><h3>Cumulative cost (USD)</h3><canvas id="c_cost"></canvas></div>
@@ -86,7 +87,7 @@ code{font-size:12px;word-break:break-all} table{width:100%;border-collapse:colla
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const charts={};
 function line(id,labels,sets,max){
-  const ds=sets.map(([label,data,color])=>({label,data,borderColor:css(color),backgroundColor:css(color),tension:.2,pointRadius:3}));
+  const ds=sets.map(([label,data,color])=>({label,data,borderColor:css(color),backgroundColor:css(color),tension:.2,pointRadius:3,spanGaps:true}));
   if(charts[id]){charts[id].data.labels=labels;charts[id].data.datasets=ds;charts[id].update();return}
   charts[id]=new Chart(document.getElementById(id),{type:'line',data:{labels,datasets:ds},
     options:{animation:false,plugins:{legend:{display:sets.length>1,labels:{color:css('--mut')}}},
@@ -105,13 +106,14 @@ async function refresh(){
   const s=d.steps, last=s[s.length-1]||{}, first=s[0]||{};
   document.getElementById('status').textContent=`${s.length}${d.n_batches?'/'+d.n_batches:''} steps done · running for ${d.elapsed_min} min · last update ${new Date(d.updated*1000).toLocaleTimeString()} · refreshes every 15 s`;
   document.getElementById('kpis').innerHTML=[
-    ['Score (latest)',num(last.score),s.length>1?`step 0: ${num(first.score)}`:''],
+    ['Train score',num(last.score),s.length>1?`step 0: ${num(first.score)}`:''],
+    ['Held-out score',num([...s].reverse().find(r=>r.heldout!=null)?.heldout),'latest eval'],
     ['Solved 100',pct(last.solved),''],['Small-only 40',pct(last.small_only),''],
     ['Submitted',pct(last.submitted),''],['Turns',num(last.turns),''],
     ['Groups w/ signal',pct(last.frac_mixed),'mixed rewards in group'],['Cost',last.cost==null?'–':'$'+num(last.cost,2),'cumulative']
   ].map(([k,v,sub])=>`<div class="kpi"><span>${k}</span><b>${v}</b><span>${sub}</span></div>`).join('');
   const L=s.map(r=>r.step);
-  line('c_score',L,[['score',s.map(r=>r.score),'--a']],100);
+  line('c_score',L,[['train',s.map(r=>r.score),'--a'],['held-out',s.map(r=>r.heldout??null),'--b'],['held-out (hinted)',s.map(r=>r.hinted??null),'--c']],100);
   line('c_rates',L,[['solved',s.map(r=>r.solved),'--b'],['submitted',s.map(r=>r.submitted),'--a'],['small-only',s.map(r=>r.small_only),'--c'],['all-zero groups',s.map(r=>r.frac_all_bad),'--d']],1);
   line('c_turns',L,[['turns',s.map(r=>r.turns),'--c']]);
   line('c_cost',L,[['USD',s.map(r=>r.cost),'--d']]);

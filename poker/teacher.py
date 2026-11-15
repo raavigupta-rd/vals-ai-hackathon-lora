@@ -92,6 +92,9 @@ STEAL_RANGES = {
 }
 STEAL_RANGES["SB"] = STEAL_RANGES["BTN"]
 STEAL_MIN_BB = 15
+# "oversize": the cap on a non-all-in preflop raise-to (chips; BB = 2): open 7 + 2 per limper, 3-bet 3.0x, 4-bet+ 2.3x.
+OVERSIZE_OPEN, OVERSIZE_PER_LIMPER, OVERSIZE_3BET, OVERSIZE_4BET = 7, 2, 3.0, 2.3
+OVERSIZE_TOLERANCE = 1.5  # only raises above 1.5x the cap are clear oversizing; a 4-5bb open is not a mistake
 
 EVIDENCE = False  # v4: act only on strong evidence (see the interval helpers and the verdicts below)
 MARGIN_FOLD = 0.02
@@ -548,6 +551,8 @@ def judge(con, match_id: str, hand: int, seat: int, action_index: int) -> dict:
         return verdict
     before = [r for r in rows if r["idx"] < row["idx"]]
     raises = [r for r in before if r["street"] == "preflop" and r["action"] in ("raise", "bet")]
+    if "oversize" in EXPLOITS and (v := _oversize(row, before, raises, verdict)):
+        return v
     stack0 = row["stack_after"] - (row["chip_change"] or 0)
     if actual == "raise" and row["stack_after"] == 0 and not (raises and raises[-1]["stack_after"] == 0):
         preferred = open_shove_verdict(row["hand_code"], (row["effective_stack"] or stack0) / 2)
@@ -651,3 +656,37 @@ def _stab(con, rows, row, verdict, match_id, hand, seat) -> dict | None:
     if not hole or not board or strength_class(hole, board) not in ("air", "draw"):
         return None
     return verdict | {"rule": "stab", "preferred": "bet", "agree": False}
+
+
+def oversize_cap(before: list, raises: list) -> tuple[int, int]:
+    """(cap, legal minimum) for a preflop raise-to, given the preflop rows before it and the raises among them."""
+    last = raises[-1]["amount"] if raises else 2
+    prev = raises[-2]["amount"] if len(raises) > 1 else 2
+    if not raises:
+        limpers = sum(1 for r in before if r["street"] == "preflop" and r["action"] == "call")
+        return OVERSIZE_OPEN + OVERSIZE_PER_LIMPER * limpers, 2 * last
+    factor = OVERSIZE_3BET if len(raises) == 1 else OVERSIZE_4BET
+    return int(factor * last), int(last + max(last - prev, 2))
+
+
+def _oversize(row, before, raises, verdict) -> dict | None:
+    """Exploit `oversize`: a preflop raise, not all-in, above the cap for its spot. Raise, but smaller."""
+    if (row["action"] != "raise" or not row["amount"] or row["stack_after"] == 0
+            or any(r["amount"] is None for r in raises)):
+        return None
+    cap, minimum = oversize_cap(before, raises)
+    if row["amount"] <= OVERSIZE_TOLERANCE * cap:
+        return None
+    return verdict | {"rule": "oversize", "preferred": "raise", "agree": False, "target_amount": max(cap, minimum)}
+
+
+def agrees(verdict: dict, action: str, amount=None, *, min_amount=None) -> bool:
+    """Whether a (re)played action matches the verdict. With a `target_amount`, it must be a raise or bet no larger
+    than that amount, and at least `min_amount` (the legal minimum) when that is known."""
+    preferred = verdict.get("preferred")
+    if not (action == preferred or (preferred == "raise" and action == "bet")):
+        return False
+    cap = verdict.get("target_amount")
+    if cap is None:
+        return True
+    return action in ("raise", "bet") and amount is not None and amount <= cap and (min_amount is None or amount >= min_amount)

@@ -94,3 +94,23 @@ def test_anchor_hint_is_a_bare_neutral_line_and_blank_content_is_kept():
     assert isinstance(task.input[3], Message) and task.input[3].content == "\n\n"  # replay the exact tokens
     corr = b.hinted_task(rec(), "Fold.", "correction")
     assert "coaching" in corr.opsd_hint_selections[0].hint.lower()
+
+
+def _say_rec(**kw):
+    args = json.dumps({"action": "raise", "amount": 12, "say": "all-in! lets see that king!"})
+    return rec(tool_calls=[{"call_id": "c1", "name": "submit_action", "arguments": args}], **kw)
+
+
+def test_replayed_reply_drops_say_by_default_and_keeps_it_on_request():
+    task = b.hinted_task(_say_rec(), "x", "anchor")
+    assert json.loads(task.input[-1].arguments) == {"action": "raise", "amount": 12}
+    kept = b.hinted_task(_say_rec(), "x", "anchor", strip_say=False)
+    assert json.loads(kept.input[-1].arguments)["say"].startswith("all-in")
+
+
+def test_build_passes_strip_say_to_every_task():
+    entries = [entry(_say_rec(span_id="bad"), False, "facing_raise"), entry(_say_rec(span_id="n"), None)]
+    tasks, _ = b.build(entries, {"bad"}, code_for, anchor_ratio=1.0, correction_copies=1)
+    assert all("say" not in json.loads(t.input[-1].arguments) for t in tasks)
+    tasks, _ = b.build(entries, {"bad"}, code_for, anchor_ratio=1.0, correction_copies=1, strip_say=False)
+    assert all("say" in json.loads(t.input[-1].arguments) for t in tasks)

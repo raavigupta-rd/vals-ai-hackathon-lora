@@ -91,6 +91,9 @@ def correction_reasoning(verdict: dict, hand_code: str) -> str:
         return "Folded to me in late position: the blinds fold most of the time to a small raise. Raise."
     if rule == "stab":
         return "They checked, which usually means weakness; a half-pot bet often takes it down. Bet."
+    if rule == "oversize":
+        return ("A smaller raise does the same job here and keeps the pot manageable; there is no need to build a "
+                f"huge pot before the flop. Raise to {verdict['target_amount']}.")
     if rule == "free_fold":
         return "Checking costs nothing, so folding can only lose. Check."
     raise ValueError(f"no correction text for rule {rule!r}")
@@ -100,6 +103,11 @@ def _correction_args(verdict: dict, record: dict) -> dict | None:
     preferred = verdict["preferred"]
     if preferred in ("fold", "check", "call"):
         return {"action": preferred}
+    if verdict["rule"] == "oversize":
+        state = parse_prompt(record["messages"])
+        if not state or state["raise_min"] is None or state["raise_type"] != "raise":
+            return None
+        return {"action": "raise", "amount": int(min(max(state["raise_min"], verdict["target_amount"]), state["raise_max"]))}
     state = parse_prompt(record["messages"])
     if not state or state["raise_min"] is None or state["raise_type"] not in ("raise", "bet"):
         return None
@@ -120,13 +128,21 @@ def _correction_args(verdict: dict, record: dict) -> dict | None:
 
 
 def select(rows, *, cycle: int, abstain_ratio: float = 2.0, seed: int = 0, resampled: dict | None = None,
-           template_weight: float = TEMPLATE_WEIGHT, weight_scale: float = 1.0, rules: tuple | None = None):
-    """rows: (joined record, teacher verdict, hand code). Returns (records, stats)."""
+           template_weight: float = TEMPLATE_WEIGHT, weight_scale: float = 1.0, rules: tuple | None = None,
+           strip_say: bool = True):
+    """rows: (joined record, teacher verdict, hand code). Returns (records, stats).
+
+    strip_say removes the table-talk "say" argument from every target's tool call: the best arena teams never talk."""
     resampled = resampled or {}
-    stats = {"corrections": 0, "resampled": 0, "agreements": 0, "abstain_pool": 0, "abstain_kept": 0, "skipped": 0, "unvalidated_dropped": 0, "out_of_scope": 0}
-    records, pool = [], []
+    stats = {"corrections": 0, "resampled": 0, "agreements": 0, "abstain_pool": 0, "abstain_kept": 0, "skipped": 0, "unvalidated_dropped": 0, "out_of_scope": 0,
+             "say_stripped": 0}
+    records, pool, stripped = [], [], set()
 
     def base(record, source, weight, target):
+        args = target["tool_call"]["arguments"]
+        if strip_say and "say" in args:
+            target = target | {"tool_call": target["tool_call"] | {"arguments": {k: v for k, v in args.items() if k != "say"}}}
+            stripped.add(record["span_id"])
         return {"decision_id": record["span_id"], "messages": record["messages"], "target": target,
                 "weight": weight * weight_scale, "source": source, "cycle": cycle}
 
@@ -171,6 +187,7 @@ def select(rows, *, cycle: int, abstain_ratio: float = 2.0, seed: int = 0, resam
     random.Random(seed).shuffle(pool)
     records += pool[:keep]
     stats["abstain_kept"] = keep
+    stats["say_stripped"] = sum(r["decision_id"] in stripped for r in records)
     return records, stats
 
 
@@ -186,8 +203,9 @@ def main() -> None:
     parser.add_argument("--abstain-ratio", type=float, default=2.0)
     parser.add_argument("--template-weight", type=float, default=0.0,
                         help="weight of unvalidated fixed-sentence corrections; 0 drops them (default)")
-    parser.add_argument("--exploits", help="comma list of teacher v5 exploit rules to enable: river_fold,steal,stab")
+    parser.add_argument("--exploits", help="comma list of teacher v5 exploit rules to enable: river_fold,steal,stab,oversize")
     parser.add_argument("--rules", help="comma list of teacher rules whose corrections to keep (ablations); others become anchors")
+    parser.add_argument("--keep-say", action="store_true", help="keep the table-talk 'say' argument in targets (default: removed)")
     parser.add_argument("--weight-scale", type=float, default=1.0, help="multiply every weight (newer cycles weigh more)")
     parser.add_argument("--resampled", type=Path, help="poker/sft/resample.py output: own-words corrections")
     parser.add_argument("--out", type=Path, required=True)
@@ -218,7 +236,8 @@ def main() -> None:
         rows.append((record, verdict, hand_code([row[0], row[1]]) if row else "this hand"))
     records, stats = select(rows, cycle=args.cycle, abstain_ratio=args.abstain_ratio, resampled=resampled,
                             template_weight=args.template_weight, weight_scale=args.weight_scale,
-                            rules=tuple(args.rules.split(",")) if args.rules else None)
+                            rules=tuple(args.rules.split(",")) if args.rules else None,
+                            strip_say=not args.keep_say)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", encoding="utf-8") as stream:
         for record in records:

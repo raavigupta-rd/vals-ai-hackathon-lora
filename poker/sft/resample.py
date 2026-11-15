@@ -42,8 +42,23 @@ def _valid_by_gate(prompt, response) -> bool:
     return parse_reply(prompt, response)["valid"]
 
 
-def pick_reply(prompt, samples, *, preferred: str, validate=_valid_by_gate) -> dict | None:
-    """First sample whose single submit_action call chooses `preferred`, is valid, not cut off, and short enough."""
+def _legal_min(prompt) -> int | None:
+    from poker.hints import parse_prompt
+
+    try:
+        state = parse_prompt(prompt)
+    except Exception:  # an odd prompt only means we cannot read the minimum
+        state = None
+    if state and state["raise_min"] is not None:
+        return state["raise_min"]
+    found = re.findall(r"(?:raise|bet) to (\d+)-\d+", json.dumps(prompt[-1].get("content") if prompt else ""))
+    return int(found[-1]) if found else None
+
+
+def pick_reply(prompt, samples, *, preferred: str, validate=_valid_by_gate, max_amount=None) -> dict | None:
+    """First sample whose single submit_action call chooses `preferred`, is valid, not cut off, and short enough.
+    With `max_amount` (a verdict's target_amount) the call must also be a raise or bet of at most that amount and
+    at least the legal minimum."""
     for response in samples:
         choice = (response.get("choices") or [{}])[0]
         message = choice.get("message") or {}
@@ -59,16 +74,22 @@ def pick_reply(prompt, samples, *, preferred: str, validate=_valid_by_gate) -> d
             continue
         action = args.get("action") if isinstance(args, dict) else None
         if action == preferred or (preferred == "raise" and action == "bet"):
+            if max_amount is not None:
+                amount = args.get("amount")
+                low = _legal_min(prompt)
+                if (action not in ("bet", "raise") or not isinstance(amount, (int, float)) or amount > max_amount
+                        or (low is not None and amount < low)):
+                    continue
             if action not in ("bet", "raise"):
                 args = {k: v for k, v in args.items() if k != "amount"}
             return {"reasoning": reasoning, "content": message.get("content") or "", "arguments": args}
     return None
 
 
-def pick_shortest(prompt, samples, *, preferred: str, validate=_valid_by_gate) -> dict | None:
+def pick_shortest(prompt, samples, *, preferred: str, validate=_valid_by_gate, max_amount=None) -> dict | None:
     """Among all samples that pass pick_reply's checks, the one with the shortest reasoning. Teams that improved
     on the arena ladder moved to short, decisive replies; picking the shortest valid target teaches brevity."""
-    picks = [p for s in samples if (p := pick_reply(prompt, [s], preferred=preferred, validate=validate))]
+    picks = [p for s in samples if (p := pick_reply(prompt, [s], preferred=preferred, validate=validate, max_amount=max_amount))]
     return min(picks, key=lambda p: len(p["reasoning"])) if picks else None
 
 
@@ -107,17 +128,19 @@ def main() -> None:
     def one(entry):
         record, verdict = entry["record"], entry["verdict"]
         preferred = verdict["preferred"]
+        cap = verdict.get("target_amount")
         messages = chat_messages(record["messages"])
         tries = 0
         if args.shortest:
             drawn = [client.complete(args.deployment, messages, tools) for _ in range(args.samples)]
             tries = len(drawn)
-            picked = pick_shortest(record["messages"], drawn, preferred=preferred)
+            picked = pick_shortest(record["messages"], drawn, preferred=preferred, max_amount=cap)
             if picked:
                 return record["span_id"], preferred, picked | {"hinted": False}, tries
         for _ in range(0 if args.shortest else args.samples):
             tries += 1
-            picked = pick_reply(record["messages"], [client.complete(args.deployment, messages, tools)], preferred=preferred)
+            picked = pick_reply(record["messages"], [client.complete(args.deployment, messages, tools)], preferred=preferred,
+                               max_amount=cap)
             if picked:
                 return record["span_id"], preferred, picked | {"hinted": False}, tries
         try:
@@ -127,7 +150,8 @@ def main() -> None:
         teacher = hinted_messages(messages, hint)
         for _ in range(args.hinted_samples):
             tries += 1
-            picked = pick_reply(record["messages"], [client.complete(args.deployment, teacher, tools)], preferred=preferred)
+            picked = pick_reply(record["messages"], [client.complete(args.deployment, teacher, tools)], preferred=preferred,
+                               max_amount=cap)
             if picked:
                 return record["span_id"], preferred, picked | {"hinted": True}, tries
         return record["span_id"], preferred, None, tries

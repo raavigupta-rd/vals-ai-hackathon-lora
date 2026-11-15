@@ -171,3 +171,64 @@ def test_main_exploits_flag_sets_the_teacher_set(monkeypatch, tmp_path):
                                       "--exploits", "river_fold,steal"])
     make_records.main()
     assert teacher.EXPLOITS == {"river_fold", "steal"}
+
+
+# ---- oversize correction and silent targets ----
+
+def test_oversize_correction_raises_to_the_cap_with_plain_text():
+    verdict = {"rule": "oversize", "preferred": "raise", "target_amount": 18, "agree": False}
+    args = _correction_args(verdict, _prompt("preflop", 9, "fold, call 6, raise to 10-200"))
+    assert args == {"action": "raise", "amount": 18}
+    text = correction_reasoning(verdict, hand_code="AKo")
+    assert text == ("A smaller raise does the same job here and keeps the pot manageable; there is no need to build "
+                    "a huge pot before the flop. Raise to 18.")
+    assert not any(w in text.lower() for w in ("data", "field", "team", "player", "opponent"))
+
+
+def _with_say(decision, action="raise", amount=6):
+    record = joined(decision, action, amount=amount)
+    record["tool_calls"] = [{"name": "submit_action",
+                             "arguments": json.dumps({"action": action, "amount": amount, "say": "all-in! lets see that king!"})}]
+    return record
+
+
+def test_select_strips_say_from_every_target_by_default():
+    bad = {"rule": "facing_raise", "preferred": "fold", "agree": False}
+    rows = [(_with_say("bad", "call", None), bad, "K7o"), (_with_say("tmpl", "call", None), dict(bad), "J4o"),
+            (_with_say("good"), {"rule": "unopened", "preferred": "raise", "agree": True}, "AA"),
+            (_with_say("anc"), {"rule": None, "preferred": None, "agree": None}, "T9s")]
+    own = {"bad": {"reasoning": "mine", "content": "", "arguments": {"action": "fold", "say": "ha"}, "preferred": "fold"}}
+    records, _ = select(rows, cycle=7, abstain_ratio=5, seed=0, resampled=own, template_weight=1.0)
+    assert {r["decision_id"] for r in records} == {"bad", "tmpl", "good", "anc"}
+    assert all("say" not in r["target"]["tool_call"]["arguments"] for r in records)
+    kept, _ = select(rows, cycle=7, abstain_ratio=5, seed=0, resampled=own, template_weight=1.0, strip_say=False)
+    by_id = {r["decision_id"]: r for r in kept}
+    assert by_id["bad"]["target"]["tool_call"]["arguments"]["say"] == "ha"
+    assert "say" in by_id["good"]["target"]["tool_call"]["arguments"]
+    assert "say" in by_id["anc"]["target"]["tool_call"]["arguments"]
+
+
+def test_stats_count_targets_whose_say_was_removed():
+    rows = [(_with_say("g"), {"rule": "unopened", "preferred": "raise", "agree": True}, "AA"),
+            (_with_say("a"), {"rule": None, "preferred": None, "agree": None}, "T9s"),
+            (joined("b", "check"), {"rule": None, "preferred": None, "agree": None}, "T9s")]
+    _, stats = select(rows, cycle=7, abstain_ratio=5, seed=0)
+    assert stats["say_stripped"] == 2  # counted over the kept records only
+
+
+def test_keep_say_cli_flag(monkeypatch, tmp_path):
+    import sys
+
+    from poker.sft import make_records
+
+    seen = {}
+    monkeypatch.setattr(make_records, "select", lambda rows, **kw: seen.update(kw) or ([], {}))
+    p = tmp_path / "j.jsonl"
+    p.write_text("")
+    base = ["x", "--joined", str(p), "--db", str(tmp_path / "a.db"), "--cycle", "1", "--out", str(tmp_path / "o.jsonl")]
+    monkeypatch.setattr(sys, "argv", base)
+    make_records.main()
+    assert seen["strip_say"] is True
+    monkeypatch.setattr(sys, "argv", base + ["--keep-say"])
+    make_records.main()
+    assert seen["strip_say"] is False

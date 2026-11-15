@@ -542,3 +542,81 @@ def test_field_ranges_use_llm_team_opponents_only_when_any_exist(monkeypatch):
     con.execute("UPDATE entries SET kind='team' WHERE sub_key='e0|v1|d0'")
     con.execute("UPDATE entries SET name='LoRA' WHERE sub_key='e0|v1|d0'")  # our own seats are never the field
     assert t.field_sub_keys(con) == {"e1|v1|d1"}
+
+
+# ---- exploit rule "oversize": preflop non-all-in raises above a cap; OFF unless named in EXPLOITS ----
+
+def _over_db(our_seat, acts, stack=200):
+    players = [{"seat": s, "hole_cards": ["Ah", "Kd"] if s == our_seat else ["2c", "3d"], "starting_stack": stack}
+               for s in range(4)]
+    hand = {"hand_number": 1, "button_seat": 0, "blinds": {"1": 1, "2": 2}, "players": players, "board": [],
+            "showdown": False, "shown": {}, "actions": acts}
+    return _xdb([hand], nseats=4)
+
+
+def _oversize(acts, exploits_on=True, our_seat=3, index=None):
+    con = _over_db(our_seat, acts)
+    mine = [a for a in acts if a["seat"] == our_seat]
+    return judge(con, "m_x", 1, seat=our_seat, action_index=len(mine) - 1 if index is None else index)
+
+
+def test_oversize_is_off_by_default():
+    v = _oversize([_act(3, "raise", 40, 3, 2, -40, 160)])
+    assert v["rule"] != "oversize"
+
+
+def test_oversize_flags_big_opens_and_sets_the_cap(exploits):
+    exploits("oversize")
+    v = _oversize([_act(3, "raise", 12, 3, 2, -12, 188)])
+    assert v["rule"] == "oversize" and v["preferred"] == "raise" and v["agree"] is False
+    assert v["target_amount"] == 7 and v["actual"] == "raise"
+    assert _oversize([_act(3, "raise", 7, 3, 2, -7, 193)])["rule"] != "oversize"  # at the cap
+
+
+def test_oversize_cap_grows_by_two_chips_per_limper(exploits):
+    exploits("oversize")
+    limp = _act(2, "call", None, 3, 2, -2, 198)
+    assert _oversize([limp, _act(3, "raise", 9, 5, 2, -9, 191)])["rule"] != "oversize"
+    v = _oversize([limp, _act(3, "raise", 14, 5, 2, -14, 186)])  # above 1.5 x cap 9
+    assert v["rule"] == "oversize" and v["target_amount"] == 9
+
+
+def test_oversize_three_bets_cap_at_three_times_the_raise(exploits):
+    exploits("oversize")
+    first = _act(2, "raise", 6, 3, 2, -6, 194)
+    assert _oversize([first, _act(3, "raise", 18, 9, 6, -18, 182)])["rule"] != "oversize"
+    v = _oversize([first, _act(3, "raise", 28, 9, 6, -28, 172)])  # above 1.5 x cap 18
+    assert v["rule"] == "oversize" and v["target_amount"] == 18 and v["agree"] is False
+
+
+def test_oversize_four_bets_cap_at_two_point_three_times(exploits):
+    exploits("oversize")
+    acts = [_act(2, "raise", 6, 3, 2, -6, 194), _act(3, "raise", 20, 9, 6, -20, 180)]
+    ours = _act(0, "raise", 46, 29, 20, -46, 154)
+    assert _oversize(acts + [ours], our_seat=0)["rule"] != "oversize"
+    v = _oversize(acts + [_act(0, "raise", 70, 29, 20, -70, 130)], our_seat=0)  # above 1.5 x cap 46
+    assert v["rule"] == "oversize" and v["target_amount"] == 46
+
+
+def test_oversize_ignores_all_ins_calls_and_folds(exploits):
+    exploits("oversize")
+    assert _oversize([_act(3, "raise", 200, 3, 2, -200, 0)])["rule"] != "oversize"
+    assert _oversize([_act(3, "call", None, 3, 2, -2, 198)])["rule"] != "oversize"
+    assert _oversize([_act(3, "fold", None, 3, 2, 0, 200)])["rule"] != "oversize"
+
+
+def test_agrees_checks_the_action_and_the_amount_cap():
+    plain = {"preferred": "fold"}
+    assert _t.agrees(plain, "fold", None) and not _t.agrees(plain, "call", None)
+    v = {"preferred": "raise", "target_amount": 7}
+    assert _t.agrees(v, "raise", 7) and _t.agrees(v, "raise", 5)
+    assert not _t.agrees(v, "raise", 8) and not _t.agrees(v, "call", None) and not _t.agrees(v, "raise", None)
+    assert _t.agrees(v, "raise", 5, min_amount=4) and not _t.agrees(v, "raise", 3, min_amount=4)
+    assert _t.agrees({"preferred": "raise"}, "bet", 30)  # no cap: any raise or bet matches, as before
+
+
+def test_oversize_ignores_mild_overshoots_below_the_tolerance(exploits):
+    exploits("oversize")
+    assert _oversize([_act(3, "raise", 10, 3, 2, -10, 190)])["rule"] != "oversize"  # 5bb open: 10 <= 1.5 x 7
+    v = _oversize([_act(3, "raise", 11, 3, 2, -11, 189)])
+    assert v["rule"] == "oversize" and v["target_amount"] == 7

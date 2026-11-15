@@ -44,8 +44,11 @@ BUST_COPIES = 3
 SUBMIT = "submit_action"
 
 
-def clean_reply(record: dict):
-    """(prompt items, reply items) for a clean base reply, or None: one submit_action, not cut off, legal, short."""
+def clean_reply(record: dict, strip_say: bool = True):
+    """(prompt items, reply items) for a clean base reply, or None: one submit_action, not cut off, legal, short.
+
+    With strip_say the recorded call is rewritten without its table-talk "say" argument. OPSD replays the recorded
+    tokens, so this edits the student trace: the student is trained on the silent call, not on what base wrote."""
     calls = [c for c in record.get("tool_calls") or [] if c.get("name") == SUBMIT]
     reasoning = record.get("reasoning") or ""
     tokens = (record.get("usage") or {}).get("tokens_out")
@@ -58,6 +61,13 @@ def clean_reply(record: dict):
     except Rejected:
         return None
     args = calls[0].get("arguments")
+    if strip_say:
+        try:
+            parsed = json.loads(args) if isinstance(args, str) else args
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict) and "say" in parsed:
+            args = {k: v for k, v in parsed.items() if k != "say"}
     args = args if isinstance(args, str) else json.dumps(args, separators=(",", ":"))
     call = FunctionCall(call_id=calls[0].get("call_id") or f"call_{record['span_id']}", name=SUBMIT, arguments=args)
     prompt_json = [i.model_dump(mode="json") for i in prompt]
@@ -69,8 +79,8 @@ def clean_reply(record: dict):
     return prompt, reply + [call]
 
 
-def hinted_task(record: dict, hint: str, kind: str, rule: str | None = None) -> HintedTask | None:
-    built = clean_reply(record)
+def hinted_task(record: dict, hint: str, kind: str, rule: str | None = None, strip_say: bool = True) -> HintedTask | None:
+    built = clean_reply(record, strip_say)
     if built is None:
         return None
     prompt, reply = built
@@ -91,7 +101,7 @@ def hinted_task(record: dict, hint: str, kind: str, rule: str | None = None) -> 
 
 
 def build(entries, correction_ids, code_for, *, anchor_ratio=3.0, correction_copies=2, seed=0,
-          deployment=BASE_DEPLOYMENT):
+          deployment=BASE_DEPLOYMENT, strip_say=True):
     """entries: [{"record", "verdict"}] from poker.gate.load_entries. Returns (tasks, stats)."""
     stats = {"corrections": 0, "correction_tasks": 0, "bust_corrections": 0, "correction_dropped": 0,
              "anchor_pool": 0, "anchors": 0, "disagree_excluded": 0, "unclean": 0}
@@ -102,7 +112,7 @@ def build(entries, correction_ids, code_for, *, anchor_ratio=3.0, correction_cop
             continue
         if record["span_id"] in correction_ids:
             try:
-                task = hinted_task(record, correction_reasoning(verdict, code_for(record)), "correction", verdict.get("rule"))
+                task = hinted_task(record, correction_reasoning(verdict, code_for(record)), "correction", verdict.get("rule"), strip_say)
             except (ValueError, KeyError):
                 task = None
             if task is None:
@@ -116,7 +126,7 @@ def build(entries, correction_ids, code_for, *, anchor_ratio=3.0, correction_cop
         elif verdict.get("agree") is False:
             stats["disagree_excluded"] += 1  # a spot we would change but have no validated correction for
         else:
-            task = hinted_task(record, NEUTRAL, "anchor")
+            task = hinted_task(record, NEUTRAL, "anchor", strip_say=strip_say)
             if task is None:
                 stats["unclean"] += 1
             else:
@@ -151,6 +161,7 @@ def main() -> None:
     p.add_argument("--deployment", default=BASE_DEPLOYMENT, help="the base deployment; offline OPSD replays its tokens")
     p.add_argument("--anchor-ratio", type=float, default=3.0, help="anchor tasks per correction task (lambda)")
     p.add_argument("--correction-copies", type=int, default=2, help="copies per correction (bust rules: 3)")
+    p.add_argument("--keep-say", action="store_true", help="replay the recorded 'say' argument (default: removed)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--dry-run", action="store_true", help="default: nothing is uploaded")
     p.add_argument("--upload", action="store_true")
@@ -175,7 +186,8 @@ def main() -> None:
 
     entries = load_entries(args.joined, args.db, args.deployment)
     tasks, stats = build(entries, ids, code_for, anchor_ratio=args.anchor_ratio,
-                         correction_copies=args.correction_copies, seed=args.seed, deployment=args.deployment)
+                         correction_copies=args.correction_copies, seed=args.seed, deployment=args.deployment,
+                         strip_say=not args.keep_say)
     stats["records_corrections"] = len(ids)
     print(json.dumps(stats | {"mode": "upload" if args.upload else "dry-run"}))
     for kind in ("correction", "anchor"):

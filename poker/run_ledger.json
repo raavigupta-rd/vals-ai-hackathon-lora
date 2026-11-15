@@ -383,6 +383,18 @@
       "parent": "base",
       "status": "running",
       "source": "teams-only v3 + steal + stab + oversize, shortest validated base replies, no say; 204 corrections (420 tasks), 1260 anchors"
+    },
+    {
+      "id": "train_b158ced6e771",
+      "kind": "sft_c4",
+      "dataset": "pokerbots-sft-c4",
+      "tasks": 2208,
+      "steps": 12,
+      "checkpoint_every": 6,
+      "base_checkpoint": "ckpt_54a267c87fcd",
+      "parent": "c2b-s12",
+      "status": "running",
+      "source": "teams-only v3 + steal/stab/oversize; 259 shortest validated corrections resampled from c2b-s12 (36 from its own arena games, x2); 340 base cleanup anchors (update_scratchpad); no say"
     }
   ],
   "training_slot": {
@@ -558,6 +570,8 @@
     "Talk ablation (62 arena all-in spots x4, base): call rate 56% with talk vs 53% without - talk is not the driver.",
     "Claude rater calibration vs teacher: 79% postflop, 73% all-in, 38-47% preflop; preflop rules are contested; gate is circular for them.",
     "Final tournament has no house bots: teacher field ranges now LLM-team only.",
-    "Vals Staff: small preflop pots (no raise >10bb except 1), no table talk, ~450 tokens; 7 matches, 0 busts, mean place 2.57."
+    "Vals Staff: small preflop pots (no raise >10bb except 1), no table talk, ~450 tokens; 7 matches, 0 busts, mean place 2.57.",
+    "Cleanup-turn regression: base 98.5% valid update_scratchpad, c2b-s12 67%, sft-c1-s10 29%. SFT now includes cleanup anchors; gate checks it.",
+    "Leak hunt (10 analysts + skeptics, 18 proposals): 11 refuted (house-bot contamination, luck, duplicates); kept: cleanup fix (urgent), junk cold-call fold, call monsters at a fair price, fold river air."
   ]
 }

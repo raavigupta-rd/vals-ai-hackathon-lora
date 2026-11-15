@@ -18,10 +18,12 @@ PORT = 8000
 GPU = os.environ.get("MIMO_GPU", "H100")
 MAX_CONTAINERS = int(os.environ.get("MIMO_MAX_CONTAINERS", 4))
 
+# Official vLLM image: ships the CUDA toolkit, so FlashInfer kernels that are JIT-compiled at startup work.
 image = (
-    modal.Image.debian_slim(python_version="3.12")
-    .uv_pip_install("vllm", "huggingface_hub[hf_transfer]")
-    .env({"HF_HUB_ENABLE_HF_TRANSFER": "1", "VLLM_USE_V1": "1"})
+    modal.Image.from_registry("vllm/vllm-openai:v0.33.0",
+                              setup_dockerfile_commands=["RUN ln -sf $(command -v python3) /usr/local/bin/python"])
+    .entrypoint([])
+    .env({"VLLM_USE_FLASHINFER_SAMPLER": "0"})
 )
 hf_cache = modal.Volume.from_name("hf-cache", create_if_missing=True)
 vllm_cache = modal.Volume.from_name("vllm-cache", create_if_missing=True)
@@ -37,5 +39,7 @@ def serve():
         "vllm", "serve", MODEL, "--served-model-name", SERVED_NAME, "--host", "0.0.0.0", "--port", str(PORT),
         "--max-model-len", "65536", "--gpu-memory-utilization", "0.92", "--enable-prefix-caching",
         "--limit-mm-per-prompt", '{"image": 0, "video": 0}', "--max-num-seqs", "96",
+        # FlashInfer's GDN (linear-attention) prefill kernel is JIT-compiled and needs nvcc, absent in this image
+        "--gdn-prefill-backend", "triton",
     ]
     subprocess.Popen(" ".join(f"'{c}'" if " " in c or "{" in c else c for c in cmd), shell=True)

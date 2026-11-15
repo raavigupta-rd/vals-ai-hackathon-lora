@@ -52,6 +52,25 @@ def parse_completion(text: str) -> tuple[str, str, list[dict], bool]:
     return reasoning.strip(), content, calls, malformed
 
 
+async def stream_completion(client: httpx.AsyncClient, url: str, body: dict) -> tuple[dict, int]:
+    """Streamed /v1/completions (Modal web endpoints drop requests that stay silent for ~150 s)."""
+    parts, finish, n_out = [], None, None
+    async with client.stream("POST", url, json=body, timeout=httpx.Timeout(1800, read=600)) as r:
+        r.raise_for_status()
+        async for line in r.aiter_lines():
+            if not line.startswith("data: ") or line == "data: [DONE]":
+                continue
+            ev = json.loads(line[6:])
+            for ch in ev.get("choices") or []:
+                parts.append(ch.get("text") or "")
+                finish = ch.get("finish_reason") or finish
+            if ev.get("usage"):
+                n_out = ev["usage"]["completion_tokens"]
+    if finish is None:
+        raise RuntimeError("stream ended without finish_reason")
+    return {"text": "".join(parts), "finish_reason": finish}, n_out or 0
+
+
 class Budget:
     def __init__(self, usd: float, containers: int, gpu: str):
         self.t0, self.usd, self.rate = time.time(), usd, containers * GPU_USD_PER_HOUR.get(gpu, 4.0)
@@ -86,17 +105,15 @@ async def episode(problem: dict, sample: int, client: httpx.AsyncClient, tok, a,
                 stop = "context"
                 break
             body = {"model": "mimo", "prompt": ids, "max_tokens": min(a.max_turn_tokens, left), "temperature": 0.6,
-                    "top_p": 0.95, "top_k": 20, "stop_token_ids": STOP_IDS, "skip_special_tokens": False}
+                    "top_p": 0.95, "top_k": 20, "stop_token_ids": STOP_IDS, "skip_special_tokens": False,
+                    "stream": True, "stream_options": {"include_usage": True}}
             for attempt in range(4):
                 try:
-                    r = await client.post(f"{a.url}/v1/completions", json=body, timeout=1800)
-                    r.raise_for_status()
-                    choice = r.json()["choices"][0]
-                    n_out = r.json()["usage"]["completion_tokens"]
+                    choice, n_out = await stream_completion(client, f"{a.url}/v1/completions", body)
                     break
                 except Exception as e:  # server cold start / transient
                     if attempt == 3:
-                        print(f"[{problem['id']}#{sample}] teacher call failed: {e}", flush=True)
+                        print(f"[{problem['id']}#{sample}] teacher call failed: {type(e).__name__}: {e}", flush=True)
                         return None
                     await asyncio.sleep(10 * (attempt + 1))
             out_tok += n_out

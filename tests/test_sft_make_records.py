@@ -542,3 +542,175 @@ def test_exploits_help_lists_pad_read_but_simple_does_not(monkeypatch, capsys):
         make_records.main()
     assert "pad_read" in capsys.readouterr().out
     assert "pad_read" not in make_records.SIMPLE_EXPLOITS
+
+
+# ---- --fact-header and --drop-hallucinated -------------------------------------------------------------------
+
+from tests.test_facts import prompt as fact_prompt, ring as fact_ring  # noqa: E402
+
+
+def with_prompt(record, **kw):
+    return record | {"messages": fact_prompt(**kw)}
+
+
+def _btn_prompt(**kw):
+    return dict(seat=3, position=5, hole="Ah Jh", pot=3, hand=12, table=fact_ring([200] * 6, 3, 3, bets={4: 1, 5: 2}),
+                legal="fold, call 2, raise to 4-200") | kw
+
+
+def test_add_fact_headers_prepends_the_line_to_action_targets_only():
+    from poker.sft.make_records import add_fact_headers
+
+    rows = [(with_prompt(joined("a", "fold", reasoning="Fold it."), **_btn_prompt()), {"rule": "x", "preferred": "fold", "agree": True}, "AJs")]
+    records, _ = select(rows, cycle=1, abstain_ratio=5, seed=0)
+    pad = {"decision_id": "p", "messages": [], "weight": 1.0, "source": "cleanup_anchor", "cycle": 1,
+           "target": {"reasoning": "pad", "content": "", "tool_call": {"name": "update_scratchpad", "arguments": {"contents": "x"}}}}
+    bad = records[0] | {"decision_id": "bad", "messages": [{"role": "user", "content": "unparseable"}]}
+    out, stats = add_fact_headers(records + [pad, bad])
+    assert out[0]["target"]["reasoning"].startswith("Facts: BTN (2 behind), AJs, board -, no made hand, pot 3, call 2 (40%)")
+    assert out[0]["target"]["reasoning"].endswith("\nFold it.")
+    assert out[1]["target"]["reasoning"] == "pad"  # cleanup turns are not action turns
+    assert out[2]["target"]["reasoning"] == "Fold it."  # no parseable prompt: left alone
+    assert stats == {"headed": 1, "no_facts": 1, "not_action": 1}
+    again, stats = add_fact_headers(out)  # idempotent
+    assert again[0]["target"]["reasoning"] == out[0]["target"]["reasoning"] and stats["headed"] == 0
+    assert records[0]["target"]["reasoning"] == "Fold it."  # input not mutated
+
+
+def test_add_fact_headers_covers_corrections_agreements_and_anchors():
+    from poker.sft.make_records import add_fact_headers
+
+    verdict = {"rule": "facing_raise", "preferred": "fold", "agree": False}
+    rows = [(with_prompt(joined("c", "call"), **_btn_prompt()), verdict, "AJs"),
+            (with_prompt(joined("g", "fold"), **_btn_prompt()), {"rule": "facing_raise", "preferred": "fold", "agree": True}, "AJs"),
+            (with_prompt(joined("n", "fold"), **_btn_prompt()), {"rule": None, "preferred": None, "agree": None}, "AJs")]
+    records, _ = select(rows, cycle=1, abstain_ratio=5, seed=0, template_weight=1)
+    out, stats = add_fact_headers(records)
+    assert {r["source"] for r in out} == {"teacher_correction", "teacher_agree", "self_clean"}
+    assert all(r["target"]["reasoning"].startswith("Facts: BTN") for r in out) and stats["headed"] == 3
+
+
+def test_drop_hallucinated_drops_agreements_and_anchors_but_only_reports_corrections():
+    from poker.sft.make_records import drop_hallucinated
+
+    p = _btn_prompt(hole="Ac Kd", board="7s Kh 2c", street="flop", legal="check, bet to 2-100", pot=20)
+    liar = "I flopped a set of sevens, so I bet."
+    rows = [(with_prompt(joined("agree_bad", "check", reasoning=liar), **p), {"rule": "x", "preferred": "check", "agree": True}, "AKo"),
+            (with_prompt(joined("agree_ok", "check", reasoning="I have top pair, check."), **p), {"rule": "x", "preferred": "check", "agree": True}, "AKo"),
+            (with_prompt(joined("anchor_bad", "check", reasoning="I'm UTG with a set."), **p), {"rule": None, "preferred": None, "agree": None}, "AKo"),
+            (with_prompt(joined("fix", "call"), **p), {"rule": "facing_raise", "preferred": "fold", "agree": False}, "AKo")]
+    own = {"fix": {"reasoning": liar, "content": "", "arguments": {"action": "fold"}, "preferred": "fold"}}
+    records, _ = select(rows, cycle=1, abstain_ratio=5, seed=0, resampled=own)
+    out, stats = drop_hallucinated(records)
+    ids = {r["decision_id"] for r in out}
+    assert ids == {"agree_ok"}  # a resampled correction is the model's own words too: its hallucination is dropped
+    assert stats == {"checked": 4, "contradicted": {"teacher_agree": 1, "self_clean": 1, "teacher_resampled": 1},
+                     "dropped": 3, "no_facts": 0}
+
+
+def test_drop_hallucinated_skips_records_without_parseable_prompts():
+    from poker.sft.make_records import drop_hallucinated
+
+    records, _ = select([(joined("a", "check", reasoning="I have a set."), {"rule": "x", "preferred": "check", "agree": True}, "T9s")],
+                        cycle=1, abstain_ratio=5, seed=0)
+    out, stats = drop_hallucinated(records)
+    assert len(out) == 1 and stats["no_facts"] == 1 and stats["dropped"] == 0
+
+
+def test_drop_hallucinated_looks_at_the_original_reasoning_not_the_header():
+    from poker.sft.make_records import add_fact_headers, drop_hallucinated
+
+    p = _btn_prompt()
+    records, _ = select([(with_prompt(joined("a", "fold", reasoning="Fold."), **p), {"rule": "x", "preferred": "fold", "agree": True}, "AJs")],
+                        cycle=1, abstain_ratio=5, seed=0)
+    out, stats = drop_hallucinated(add_fact_headers(records)[0])
+    assert len(out) == 1 and stats["dropped"] == 0
+
+
+def test_cli_flags_run_and_report(monkeypatch, tmp_path):
+    out, stats = _strict_setup(monkeypatch, tmp_path, ["--exploits", "pad_read", "--fact-header", "--drop-hallucinated"])
+    assert stats["fact_header"]["no_facts"] == len(out) and stats["hallucination"]["dropped"] == 0
+    out, stats = _strict_setup(monkeypatch, tmp_path, ["--exploits", "pad_read"])
+    assert "fact_header" not in stats and "hallucination" not in stats  # defaults unchanged
+
+
+# ---- teacher v7 ----
+V7_NAMES = {"big_price_fold", "monster_value", "one_pair_pot_cap", "rfi_gto", "iso_raise", "bb_defend", "three_bet",
+            "vs_3bet", "postflop_sizing", "field_call"}
+
+
+def test_v7_flag_enables_exactly_the_v7_rules(monkeypatch, tmp_path):
+    import sys
+
+    from poker import teacher
+    from poker.sft import make_records
+
+    seen = {}
+    monkeypatch.setattr(make_records, "select", lambda rows, **kw: seen.update(kw) or ([], {}))
+    monkeypatch.setattr(teacher, "EXPLOITS", set())
+    p = tmp_path / "j.jsonl"
+    p.write_text("")
+    base = ["x", "--joined", str(p), "--db", str(tmp_path / "a.db"), "--cycle", "1", "--out", str(tmp_path / "o.jsonl")]
+    monkeypatch.setattr(sys, "argv", base + ["--v7", "--rules", "allin_call", "--exploits", "steal"])
+    make_records.main()
+    assert set(seen["rules"]) == V7_NAMES | {"free_fold"}
+    assert teacher.EXPLOITS == V7_NAMES
+    assert "raise_first_in" not in teacher.EXPLOITS and "rfi_gto" in make_records.V7_EXPLOITS
+
+
+def test_v7_and_simple_cannot_be_combined(monkeypatch, tmp_path, capsys):
+    import sys
+
+    import pytest
+
+    from poker.sft import make_records
+
+    monkeypatch.setattr(sys, "argv", ["x", "--joined", "j", "--cycle", "1", "--out", str(tmp_path / "o"), "--v7", "--simple"])
+    with pytest.raises(SystemExit):
+        make_records.main()
+
+
+def test_v7_correction_texts_are_plain_poker():
+    cases = [
+        ({"rule": "rfi_gto", "preferred": "raise", "target_amount": 5}, "Raise to 5."),
+        ({"rule": "rfi_gto", "preferred": "fold"}, "Fold."),
+        ({"rule": "iso_raise", "preferred": "raise", "target_amount": 8}, "Raise to 8."),
+        ({"rule": "iso_raise", "preferred": "fold"}, "Fold."),
+        ({"rule": "three_bet", "preferred": "raise", "target_amount": 15}, "Raise to 15."),
+        ({"rule": "bb_defend", "preferred": "call", "required": 0.27}, "Call."),
+        ({"rule": "bb_defend", "preferred": "fold", "required": 0.27}, "Fold."),
+        ({"rule": "vs_3bet", "preferred": "call"}, "Call."),
+        ({"rule": "vs_3bet", "preferred": "fold"}, "Fold."),
+        ({"rule": "vs_3bet", "preferred": "raise", "target_amount": 41}, "Raise to 41."),
+        ({"rule": "postflop_sizing", "preferred": "check", "reason": "weak_value"}, "Check."),
+        ({"rule": "postflop_sizing", "preferred": "bet", "reason": "overbet", "texture": "dry", "target_frac": 0.33}, "a third of the pot"),
+        ({"rule": "postflop_sizing", "preferred": "bet", "reason": "mis_size", "texture": "wet", "target_frac": 0.7}, "two thirds of the pot"),
+        ({"rule": "postflop_sizing", "preferred": "bet", "reason": "overbet", "texture": "river", "target_frac": 0.6}, "three fifths of the pot"),
+    ]
+    for verdict, tail in cases:
+        text = correction_reasoning(verdict, "AQs")
+        assert tail in text and 20 < len(text) < 400, verdict
+        assert not any(w in text.lower() for w in ("data", "field", "statistic", "team", "sample", "percent")), text
+    assert correction_reasoning({"rule": "rfi_gto", "preferred": "raise", "target_amount": 5}, "AQs").count("AQs") == 1
+
+
+def test_v7_correction_args_use_legal_bounds():
+    for rule in ("rfi_gto", "iso_raise", "three_bet", "vs_3bet"):
+        v = {"rule": rule, "preferred": "raise", "target_amount": 15}
+        assert _correction_args(v, _prompt("preflop", 8, "fold, call 5, raise to 10-200")) == {"action": "raise", "amount": 15}, rule
+        assert _correction_args(v, _prompt("preflop", 8, "fold, call 5, raise to 20-200")) == {"action": "raise", "amount": 20}, rule
+        assert _correction_args(v, _prompt("preflop", 8, "fold, call 5, raise to 10-12")) == {"action": "raise", "amount": 12}, rule
+        assert _correction_args(v, _prompt("preflop", 8, "fold, call 5")) is None, rule
+    for rule, preferred in (("bb_defend", "call"), ("bb_defend", "fold"), ("vs_3bet", "call"), ("rfi_gto", "fold")):
+        assert _correction_args({"rule": rule, "preferred": preferred}, {}) == {"action": preferred}
+    sizing = {"rule": "postflop_sizing", "preferred": "bet", "target_frac": 0.33}
+    assert _correction_args(sizing, _prompt("flop", 30, "check, bet to 2-100", board="Ks 9d 4h")) == {"action": "bet", "amount": 10}
+    assert _correction_args(sizing, _prompt("flop", 3, "check, bet to 2-100", board="Ks 9d 4h")) == {"action": "bet", "amount": 2}
+    assert _correction_args(sizing, _prompt("flop", 30, "fold, call 5, raise to 10-100", board="Ks 9d 4h")) is None
+    assert _correction_args({"rule": "postflop_sizing", "preferred": "check"}, {}) == {"action": "check"}
+
+
+def test_hallucination_drop_sources_include_resampled():
+    from poker.sft.make_records import HALLUCINATION_DROP_SOURCES
+
+    assert "teacher_resampled" in HALLUCINATION_DROP_SOURCES

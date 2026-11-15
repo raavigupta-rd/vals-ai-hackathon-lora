@@ -28,6 +28,9 @@ BUST_WEIGHT = 3.0
 TEMPLATE_WEIGHT = 1.0  # fixed-sentence fallback: cycle 1 showed these get memorized, so they count less
 AGREE_WEIGHT = 1.0
 SIMPLE_EXPLOITS = ("big_price_fold", "raise_first_in", "one_pair_pot_cap", "monster_value")  # teacher v6 tier 1
+V7_EXPLOITS = ("big_price_fold", "monster_value", "one_pair_pot_cap", "rfi_gto", "iso_raise", "bb_defend", "three_bet",
+               "vs_3bet", "field_call", "postflop_sizing")  # teacher v7; raise_first_in is replaced by rfi_gto and iso_raise
+V7_RAISE_RULES = ("rfi_gto", "iso_raise", "three_bet", "vs_3bet")  # preflop raise-to corrections with a target_amount
 ABSTAIN_WEIGHT = 1.0
 
 
@@ -51,6 +54,85 @@ def target_from_reply(record: dict) -> dict | None:
         args = {k: v for k, v in args.items() if k != "amount"}  # the harness ignores it; teach the clean form
     return {"reasoning": record["reasoning"], "content": record.get("content") or "",
             "tool_call": {"name": "submit_action", "arguments": args}}
+
+
+def _v7_rfi(verdict: dict, hand_code: str) -> str:
+    if verdict["preferred"] == "fold":
+        return (f"It is folded to me and {hand_code} is not strong enough to open from this seat. Limping lets everyone "
+                "in cheaply and gives up the initiative. Fold.")
+    return (f"Everyone folded to me and {hand_code} is a good hand to open from this seat. A raise often takes the "
+            "blinds right away and otherwise gives me the lead in the pot; folding or limping gives that up. "
+            f"Raise to {verdict['target_amount']}.")
+
+
+def _v7_iso(verdict: dict, hand_code: str) -> str:
+    if verdict["preferred"] == "fold":
+        return (f"Someone limped in front of me and {hand_code} is not a hand to play behind a limp. Calling just "
+                "adds chips to a pot where I will often be behind. Fold.")
+    return (f"Someone limped in front of me and {hand_code} plays well against a weak range. A raise isolates the limper "
+            f"and gives me the lead in the pot, while calling lets the whole table in. Raise to {verdict['target_amount']}.")
+
+
+def _v7_three_bet(verdict: dict, hand_code: str) -> str:
+    return (f"{hand_code} is a strong hand against an open from this seat. Calling or folding gives up value; "
+            f"a re-raise builds the pot while I am ahead and takes the lead. Raise to {verdict['target_amount']}.")
+
+
+def _v7_bb_defend(verdict: dict, hand_code: str) -> str:
+    if verdict["preferred"] == "fold":
+        return (f"{hand_code} is an offsuit hand that rarely makes a strong hand, and I would play it out of position. "
+                "Calling with it loses chips over time. Fold.")
+    return (f"I am in the big blind and already have chips in, so I need only about {verdict['required']:.0%} equity to "
+            f"call. {hand_code} has more than that against this opener. Call.")
+
+
+def _v7_vs_3bet(verdict: dict, hand_code: str) -> str:
+    if verdict["preferred"] == "fold":
+        return (f"I raised and got re-raised. A re-raise usually shows a strong hand, and {hand_code} is not good enough "
+                "to continue. Fold.")
+    if verdict["preferred"] == "raise":
+        return (f"I raised and got re-raised, and {hand_code} is one of the best hands I can have here. Re-raise "
+                f"for value. Raise to {verdict['target_amount']}.")
+    return (f"I raised and got re-raised. {hand_code} is strong enough to continue and should not fold to one "
+            "re-raise at this price. Call.")
+
+
+def _frac_words(frac: float) -> str:
+    """A pot fraction in plain words: 0.33 -> 'a third of', 0.5 -> 'half', 0.7 -> 'two thirds of' ..."""
+    names = ((1 / 3, "a third of"), (0.5, "half"), (0.6, "three fifths of"), (2 / 3, "two thirds of"), (0.75, "three quarters of"))
+    return min(names, key=lambda n: abs(n[0] - frac))[1]
+
+
+def _v7_field_call(verdict: dict, hand_code: str) -> str:
+    spot = {"open": "a raise this size", "3bet": "a re-raise", "jam": "an all-in or a big re-raise"}.get(
+        verdict.get("situation"), "a raise")
+    eq, req = verdict.get("equity", 0.0), verdict.get("required", 0.0)
+    mine = f"about {round(eq * 100)} in 100"
+    price = f"The price needs about {round(req * 100)} in 100"
+    if verdict["preferred"] == "fold":
+        return (f"Against {spot}, players hold strong hands. {hand_code} wins {mine} against those hands. {price}, so "
+                "continuing loses chips over time. Fold.")
+    return (f"Against {spot}, players hold a wide mix, and many of those hands are weak. {hand_code} wins {mine} against "
+            f"them. {price}, so it is a profitable spot. Call.")
+
+
+def _v7_sizing(verdict: dict, hand_code: str) -> str:
+    if verdict["preferred"] == "check":
+        return ("I have no pair and no draw. Betting only folds out hands I beat and gets called or raised by hands that "
+                "beat me. Check.")
+    size = _frac_words(verdict["target_frac"])
+    if verdict.get("texture") == "wet":
+        why = "On a wet board I charge draws with a bet of about two thirds to three quarters of the pot"
+    elif verdict.get("texture") == "river":
+        why = "On the river a bet of about three fifths of the pot gets called by worse hands"
+    else:
+        why = "On a dry board a small bet does the job because there are few draws to charge"
+    cost = "A bet this large risks too much" if verdict.get("reason") == "overbet" else "This size does not fit the board"
+    return f"{cost} with a hand that is not a monster. {why}: bet about {size} the pot."
+
+
+V7_TEXTS = {"rfi_gto": _v7_rfi, "iso_raise": _v7_iso, "three_bet": _v7_three_bet, "bb_defend": _v7_bb_defend,
+            "vs_3bet": _v7_vs_3bet, "field_call": _v7_field_call, "postflop_sizing": _v7_sizing}
 
 
 def correction_reasoning(verdict: dict, hand_code: str, pad_rewritten: bool = False) -> str:
@@ -130,6 +212,8 @@ def correction_reasoning(verdict: dict, hand_code: str, pad_rewritten: bool = Fa
             return "I have a very strong hand. I should not fold to a normal-size bet. Call."
         return ("I have a very strong hand. I should not give the opponent a free card or fold for a normal-size bet; "
                 "bet about two thirds of the pot for value.")
+    if rule in V7_TEXTS:
+        return V7_TEXTS[rule](verdict, hand_code)
     raise ValueError(f"no correction text for rule {rule!r}")
 
 
@@ -149,6 +233,17 @@ def _correction_args(verdict: dict, record: dict) -> dict | None:
             if state["raise_type"] != "bet":
                 return None
             target, action = round(verdict["target_frac"] * state["pot"]), "bet"
+        return {"action": action, "amount": int(min(max(state["raise_min"], target), state["raise_max"]))}
+    if verdict["rule"] in V7_RAISE_RULES or verdict["rule"] == "postflop_sizing":
+        state = parse_prompt(record["messages"])
+        if verdict["rule"] == "postflop_sizing":
+            if not state or state["raise_min"] is None or state["raise_type"] != "bet":
+                return None
+            target, action = round(verdict["target_frac"] * state["pot"]), "bet"
+        else:
+            if not state or state["raise_min"] is None or state["raise_type"] != "raise":
+                return None
+            target, action = verdict["target_amount"], "raise"
         return {"action": action, "amount": int(min(max(state["raise_min"], target), state["raise_max"]))}
     if verdict["rule"] == "oversize":
         state = parse_prompt(record["messages"])
@@ -239,6 +334,56 @@ def select(rows, *, cycle: int, abstain_ratio: float = 2.0, seed: int = 0, resam
     stats["abstain_kept"] = keep
     stats["say_stripped"] = sum(r["decision_id"] in stripped for r in records)
     return records, stats
+
+
+HALLUCINATION_DROP_SOURCES = ("teacher_agree", "self_clean", "teacher_resampled")  # the model's own words
+
+
+def _is_action_target(record: dict) -> bool:
+    return record["target"]["tool_call"]["name"] == "submit_action"
+
+
+def add_fact_headers(records) -> tuple[list[dict], dict]:
+    """Prepend poker.facts.fact_line(prompt) and a newline to every action-turn target reasoning (any source).
+    Cleanup-turn and pad records are left alone; so are records whose prompt cannot be parsed. Idempotent."""
+    from poker.facts import fact_line
+
+    out, stats = [], {"headed": 0, "no_facts": 0, "not_action": 0}
+    for record in records:
+        if not _is_action_target(record):
+            stats["not_action"] += 1
+        elif record["target"]["reasoning"].startswith("Facts: "):
+            pass
+        elif (line := fact_line(record["messages"])) is None:
+            stats["no_facts"] += 1
+        else:
+            target = record["target"] | {"reasoning": line + "\n" + record["target"]["reasoning"]}
+            record = record | {"target": target}
+            stats["headed"] += 1
+        out.append(record)
+    return out, stats
+
+
+def drop_hallucinated(records, sources=HALLUCINATION_DROP_SOURCES) -> tuple[list[dict], dict]:
+    """Drop `sources` records whose reasoning contradicts the facts computed from their prompt (poker.facts.contradictions).
+    Corrections are only counted: their reasoning is the lesson. Run before add_fact_headers."""
+    from poker.facts import compute_facts, contradictions
+
+    out, stats = [], {"checked": 0, "contradicted": {}, "dropped": 0, "no_facts": 0}
+    for record in records:
+        if _is_action_target(record):
+            facts = compute_facts(record["messages"])
+            if facts is None:
+                stats["no_facts"] += 1
+            else:
+                stats["checked"] += 1
+                if contradictions(record["target"]["reasoning"], facts):
+                    stats["contradicted"][record["source"]] = stats["contradicted"].get(record["source"], 0) + 1
+                    if record["source"] in sources:
+                        stats["dropped"] += 1
+                        continue
+        out.append(record)
+    return out, stats
 
 
 _LEAK_MARKERS = ("SCRATCHPAD>>>", "<<<SCRATCHPAD")
@@ -370,21 +515,32 @@ def main() -> None:
     parser.add_argument("--template-weight", type=float, default=0.0,
                         help="weight of unvalidated fixed-sentence corrections; 0 drops them (default)")
     parser.add_argument("--exploits", help="comma list of teacher v5 exploit rules to enable: river_fold,steal,stab,oversize,monster_call,river_air_fold,"
-                             "pad_read (needs the teacher pad chain from --joined; pair with --rewrite-pads-strict)")
+                             "rfi_gto,iso_raise,bb_defend,three_bet,vs_3bet,postflop_sizing,pad_read (needs the teacher pad chain from --joined; pair with --rewrite-pads-strict)")
     parser.add_argument("--cleanup-ratio", type=float, default=0.3,
                         help="cleanup-turn anchors per action record (keeps update_scratchpad working)")
     parser.add_argument("--cleanup-deployment", default="infer_d3d2b6b92171",
                         help="whose cleanup replies to use as anchors (base answers 98.5%% correctly)")
     parser.add_argument("--rules", help="comma list of teacher rules whose corrections to keep (ablations); others become anchors")
-    parser.add_argument("--simple", action="store_true",
-                        help="v6 tier-1 rules only: big_price_fold, raise_first_in, one_pair_pot_cap, monster_value, "
-                             "free_fold; every older rule becomes an anchor (overrides --rules and --exploits)")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--simple", action="store_true",
+                      help="v6 tier-1 rules only: big_price_fold, raise_first_in, one_pair_pot_cap, monster_value, "
+                           "free_fold; every older rule becomes an anchor (overrides --rules and --exploits)")
+    mode.add_argument("--v7", action="store_true",
+                      help="teacher v7 rules only: big_price_fold, monster_value, one_pair_pot_cap, free_fold plus rfi_gto, "
+                           "iso_raise, bb_defend, three_bet, vs_3bet, postflop_sizing; every other rule becomes an anchor "
+                           "(overrides --rules and --exploits)")
     parser.add_argument("--rewrite-pads", action="store_true",
                         help="show each action turn the teacher pad the deterministic writer would have left at the start "
                              "of that hand (poker/pad/rewrite.py); records with no gap-free chain keep their block")
     parser.add_argument("--rewrite-pads-strict", action="store_true",
                         help="implies --rewrite-pads; also drops action records whose pad could not be rewritten when they "
                              "carry a pad-dependent correction (rule pad_read), and reports rewritten/kept/dropped")
+    parser.add_argument("--fact-header", action="store_true",
+                        help="prepend a code-computed 'Facts: position, hand, board, made hand, price, stack, rank' line "
+                             "(poker/facts.py) to every action-turn target reasoning")
+    parser.add_argument("--drop-hallucinated", action="store_true",
+                        help="drop agreements and anchors whose reasoning contradicts those facts (wrong position, a set/"
+                             "flush/straight/pair the cards do not make, wrong outs); reports counts, corrections are kept")
     parser.add_argument("--keep-say", action="store_true", help="keep the table-talk 'say' argument in targets (default: removed)")
     parser.add_argument("--weight-scale", type=float, default=1.0, help="multiply every weight (newer cycles weigh more)")
     parser.add_argument("--resampled", type=Path, help="poker/sft/resample.py output: own-words corrections")
@@ -406,6 +562,11 @@ def main() -> None:
 
         teacher.EXPLOITS = set(SIMPLE_EXPLOITS)
         rules = SIMPLE_EXPLOITS + ("free_fold",)
+    elif args.v7:
+        import poker.teacher as teacher
+
+        teacher.EXPLOITS = set(V7_EXPLOITS)
+        rules = V7_EXPLOITS + ("free_fold",)
     elif args.exploits:
         import poker.teacher as teacher
 
@@ -454,6 +615,10 @@ def main() -> None:
         strict = {r["span_id"] for r, v, _ in rows if v.get("rule") == "pad_read"} if args.rewrite_pads_strict else set()
         records, rewrite_stats = rewrite_records(records, matches, index, strict_ids=strict)
         stats["pad_rewrite"] = rewrite_stats
+    if args.drop_hallucinated:
+        records, stats["hallucination"] = drop_hallucinated(records)
+    if args.fact_header:
+        records, stats["fact_header"] = add_fact_headers(records)
     if args.cleanup_ratio > 0:
         cleanups = [json.loads(line) for line in args.joined.open(encoding="utf-8")]
         cleanups = [r for r in cleanups if r.get("source") == "arena" and r.get("deployment") == args.cleanup_deployment]

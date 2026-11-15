@@ -47,16 +47,16 @@ def chain_index(rows) -> dict:
     return index
 
 
-def _pads(index: dict, match_id, seat) -> dict[int, str]:
+def _pads(index: dict, match_id, seat, version: int = 1) -> dict[int, str]:
     """{h: pad shown at the start of hand h} for the longest gap-free chain from hand 1 (cached on the index)."""
     cache = index.setdefault("_pads", {})
-    key = (match_id, seat)
+    key = (match_id, seat, version)
     if key not in cache:
-        hands = index.get(key, {})
+        hands = index.get((match_id, seat), {})
         pads, prev, h = {1: ""}, "", 1
         while h in hands:
             try:
-                prev, _ = teacher_pad(hands[h], prev)
+                prev, _ = teacher_pad(hands[h], prev, version)
             except (ValueError, KeyError, AttributeError):
                 break
             h += 1
@@ -65,22 +65,22 @@ def _pads(index: dict, match_id, seat) -> dict[int, str]:
     return cache[key]
 
 
-def truncated_chains(index: dict) -> dict:
+def truncated_chains(index: dict, version: int = 1) -> dict:
     """{(match_id, seat): {"chain_end", "last_hand"}} for chains that stop before the last cleanup seen: a missing or
     unparseable cleanup in the middle. chain_end is the last hand whose start pad the chain can give."""
     found = {}
     for key, hands in list(index.items()):
-        if not isinstance(key, tuple):
+        if not isinstance(key, tuple) or len(key) != 2:
             continue
-        chain_end, last_hand = max(_pads(index, *key)), max(hands)
+        chain_end, last_hand = max(_pads(index, *key, version)), max(hands)
         if last_hand >= chain_end:
             found[key] = {"chain_end": chain_end, "last_hand": last_hand}
     return found
 
 
-def teacher_pad_at(index: dict, match_id, seat: int, hand: int) -> str | None:
+def teacher_pad_at(index: dict, match_id, seat: int, hand: int, version: int = 1) -> str | None:
     """The pad the writer leaves at the start of `hand` ('' for hand 1); None when the chain cannot be built."""
-    return _pads(index, match_id, seat).get(hand)
+    return _pads(index, match_id, seat, version).get(hand)
 
 
 def rewrite_messages(messages: list[dict], pad: str) -> list[dict]:
@@ -93,10 +93,11 @@ def rewrite_messages(messages: list[dict], pad: str) -> list[dict]:
     return out
 
 
-def rewrite_records(records, matches: dict, index: dict, strict_ids=frozenset()) -> tuple[list[dict], dict]:
+def rewrite_records(records, matches: dict, index: dict, strict_ids=frozenset(), version: int = 1) -> tuple[list[dict], dict]:
     """matches: decision_id -> (match_id, seat, hand); a missing part (None) skips the record and counts it.
     Only submit_action records are touched. A record whose pad cannot be rewritten is kept as is, unless its
-    decision_id is in `strict_ids` (its target depends on the pad): then it is dropped and counted."""
+    decision_id is in `strict_ids` (its target depends on the pad): then it is dropped and counted.
+    `version` 2 renders the v2 pad schema (default 1)."""
     stats: Counter = Counter(rewritten=0, kept_no_chain=0, dropped_no_chain=0, incomplete_match=0)
     out = []
     for r in records:
@@ -109,7 +110,7 @@ def rewrite_records(records, matches: dict, index: dict, strict_ids=frozenset())
         if key is not None and None in key:
             stats["incomplete_match"] += 1
             key = None
-        pad = teacher_pad_at(index, key[0], key[1], key[2]) if key else None
+        pad = teacher_pad_at(index, key[0], key[1], key[2], version) if key else None
         if pad is None:
             if r.get("decision_id") in strict_ids:
                 stats["dropped_no_chain"] += 1
@@ -119,7 +120,7 @@ def rewrite_records(records, matches: dict, index: dict, strict_ids=frozenset())
             continue
         stats["rewritten"] += 1
         out.append(r | {"messages": rewrite_messages(r["messages"], pad)})
-    truncated = truncated_chains(index)
+    truncated = truncated_chains(index, version)
     stats["truncated_chains"] = len(truncated)
     stats["truncated_matches"] = sorted({m for m, _ in truncated})
     stats["unparseable_cleanups"] = index.get("_meta", {}).get("unparseable", 0)

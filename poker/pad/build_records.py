@@ -8,7 +8,7 @@ and a target with a short reasoning note, empty content and one update_scratchpa
 (3 or more hero turns, or the last hero action was a check) come first and get a higher weight, because that is
 where fine-tunes fail the cleanup turn. With `--chain` (default) the pad shown in each prompt is replaced by the
 teacher pad written for the same seat's previous hand, so the counts the target accumulates are derivable from
-the prompt; hands whose predecessor is missing keep the original pad. `--no-chain` keeps every original prompt.
+the prompt; hands whose predecessor is missing keep the original pad. `--no-chain` keeps every original prompt. `--pad-version 2` writes the v2 pad (see `poker.pad.writer`).
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ def db_agrees(db, match_id: str, summary) -> bool | None:
 
 
 def build(joined: Path, out: Path, *, chain: bool = True, sources=("arena",), multi_only: bool = False,
-          limit: int | None = None, db_path: Path | None = None) -> dict:
+          limit: int | None = None, db_path: Path | None = None, pad_version: int = 1) -> dict:
     stats: Counter = Counter()
     db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) if db_path else None
     parsed = []
@@ -103,7 +103,7 @@ def build(joined: Path, out: Path, *, chain: bool = True, sources=("arena",), mu
     for match_id, hero, hand, decision_id, row, summary in parsed:
         prev = last_pad.get((match_id, hero)) if chain and match_id else None
         messages = with_pad(row["messages"], prev) if prev is not None else row["messages"]
-        pad, state = teacher_pad(messages)
+        pad, state = teacher_pad(messages, version=pad_version)
         if chain and match_id:
             last_pad[(match_id, hero)] = pad
         multi = is_multi_turn(summary.hero_actions)
@@ -117,7 +117,7 @@ def build(joined: Path, out: Path, *, chain: bool = True, sources=("arena",), mu
             "source": "pad_teacher", "decision_id": decision_id,
             "meta": {"match_id": match_id, "hand": hand, "seat": hero, "hero_turns": summary.hero_turns,
                      "priority": "multi_turn" if multi else "single_turn", "chained": prev is not None,
-                     "pad_chars": len(pad)},
+                     "pad_chars": len(pad), "pad_version": pad_version},
         })
     records.sort(key=lambda r: r["meta"]["priority"] != "multi_turn")  # stable: multi-turn first
     if multi_only:
@@ -139,11 +139,12 @@ def main(argv=None) -> int:
     ap.add_argument("--db", type=Path, default=None, help="arena.db: drop records whose showdown cards disagree with it")
     ap.add_argument("--sources", default="arena", help="comma list of joined 'source' values (arena, other)")
     ap.add_argument("--no-chain", action="store_true", help="keep each prompt's original pad")
+    ap.add_argument("--pad-version", type=int, choices=(1, 2), default=1, help="2 = head-heavy exploit pad (default 1)")
     ap.add_argument("--multi-only", action="store_true")
     ap.add_argument("--limit", type=int, default=None)
     a = ap.parse_args(argv)
     stats = build(a.joined, a.out, chain=not a.no_chain, sources=tuple(a.sources.split(",")), multi_only=a.multi_only,
-                  limit=a.limit, db_path=a.db)
+                  limit=a.limit, db_path=a.db, pad_version=a.pad_version)
     print(json.dumps(stats, indent=1, sort_keys=True), file=sys.stderr)
     return 0
 

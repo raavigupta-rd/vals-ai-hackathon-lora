@@ -130,3 +130,19 @@ def test_rendered_pads_over_the_limit_are_refused():
     with pytest.raises(AssertionError):
         rewrite_messages(action_record()["messages"], "x" * 5001)
     rewrite_messages(action_record()["messages"], "x" * 5000)
+
+
+def test_rewrite_v2_pads_use_the_v2_renderer():
+    index = chain_index([cleanup(hand=1), cleanup(hand=2)])
+    pad = teacher_pad_at(index, "m", 0, 3, version=2)
+    assert " BB) | rank " in pad and "open " in pad
+    assert teacher_pad_at(index, "m", 0, 3).startswith("H2/30 | me seat0 190 | rank")  # default stays v1
+    assert " BB)" not in teacher_pad_at(index, "m", 0, 3)
+    out, stats = rewrite_records([action_record(hand=3)], {"d": ("m", 0, 3)}, index, version=2)
+    assert stats["rewritten"] == 1 and " BB) | rank " in out[0]["messages"][1]["content"]
+
+
+def test_rewrite_v1_and_v2_chains_do_not_share_a_cache():
+    index = chain_index([cleanup(hand=1)])
+    a, b = teacher_pad_at(index, "m", 0, 2), teacher_pad_at(index, "m", 0, 2, version=2)
+    assert a != b and teacher_pad_at(index, "m", 0, 2) == a

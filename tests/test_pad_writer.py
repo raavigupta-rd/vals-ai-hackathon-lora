@@ -18,10 +18,10 @@ def pad_msg(pad="(empty)"):
             f"{0 if pad == '(empty)' else len(pad)}/5000 characters. You can rewrite it after this hand."}
 
 
-def table(stacks, hero, folded=(), out=()):
+def table(stacks, hero, folded=(), out=(), button=None):
     rows = []
     for s, st in enumerate(stacks):
-        tag = " (you)" if s == hero else ""
+        tag = (" (you)" if s == hero else "") + (" [button]" if s == button else "")
         extra = ", out" if s in out else (", folded" if s in folded else "")
         rows.append(f"  seat {s}: seat{s}{tag} stack {st}, bet 0{extra}")
     return "\n".join(rows)
@@ -29,10 +29,10 @@ def table(stacks, hero, folded=(), out=()):
 
 def hand_msgs(hand=4, hero=4, stacks=(200, 200, 200, 200, 200, 200), prev_pad="(empty)", first_actions=None,
               later=None, final="Final board: -\nNo showdown: hands that were not shown stay hidden.",
-              stacks_now=None, hero_actions=("fold",), out=()):
+              stacks_now=None, hero_actions=("fold",), out=(), button=None):
     first_actions = first_actions or ["  preflop: seat1 (seat 1) fold", "  preflop: seat2 (seat 2) call"]
     head = (f"## Hand {hand} of 30\nYour seat: {hero} (position 1; 0 = small blind)\nStreet: preflop\n"
-            f"Your hole cards: 9c 5c\nBoard: -\nPot (including current bets): 7\nTable:\n{table(stacks, hero, out=out)}\n"
+            f"Your hole cards: 9c 5c\nBoard: -\nPot (including current bets): 7\nTable:\n{table(stacks, hero, out=out, button=button)}\n"
             "Actions this hand:\n" + "\n".join(first_actions) + "\n\nLegal actions: fold, call 2\nCall submit_action.")
     msgs = [{"role": "system", "type": "message", "content": SYSTEM}, pad_msg(prev_pad),
             {"role": "user", "type": "message", "content": head}]
@@ -216,3 +216,282 @@ def test_multi_only_and_source_filters(tmp_path):
     assert stats["written"] == 0
     stats = br.build(src, out, sources=("arena", "other"), multi_only=False)
     assert stats["written"] == 2
+
+
+# ---- pad v2 -------------------------------------------------------------------------------------------------------
+
+def v2(msgs, prev=None):
+    return w.teacher_pad(msgs, prev, version=2)
+
+
+def v2_line(pad, prefix):
+    return next(ln for ln in pad.split("\n") if ln.startswith(prefix))
+
+
+def test_v2_header_line():
+    pad, _ = v2(hand_msgs(stacks_now=(199, 197, 195, 200, 203, 206)))
+    assert pad.split("\n")[0] == "H4/30 | me seat4 203 (101 BB) | rank 2/6 | gap up +3, down -3 | 26 left"
+
+
+def test_v2_header_rank_one_and_out():
+    top = v2(hand_msgs(stacks_now=(100, 100, 100, 100, 300, 100)))[0].split("\n")[0]
+    assert "rank 1/6 | gap up +0, down -200" in top
+    gone = v2(hand_msgs(stacks_now=(200, 200, 200, 200, 0, 200), hero_actions=("fold",)))[0].split("\n")[0]
+    assert "rank out/5" in gone
+
+
+def test_v2_opponent_fields_from_one_hand():
+    msgs = hand_msgs(stacks_now=(199, 197, 195, 200, 203, 206),
+                     first_actions=["  preflop: seat0 (seat 0) raise to 6", "  preflop: seat1 (seat 1) call",
+                                    "  preflop: seat2 (seat 2) fold", "  preflop: seat3 (seat 3) check"])
+    pad, _ = v2(msgs)
+    assert v2_line(pad, "seat0:") == ("seat0: 199 | VPIP 1/1 | open 1/1 | 3bet 0/0 | jams 0 | folds-to-raise 0/0 | shown: -")
+    assert "VPIP 1/1 | open 0/0 | 3bet 0/1 | jams 0 | folds-to-raise 0/1" in v2_line(pad, "seat1:")
+    assert "VPIP 0/1 | open 0/0 | 3bet 0/1 | jams 0 | folds-to-raise 1/1" in v2_line(pad, "seat2:")
+    assert not any(ln.startswith("seat4:") for ln in pad.split("\n"))
+
+
+def test_v2_three_bet_and_jam_counts():
+    msgs = hand_msgs(stacks_now=(50, 300, 200, 200, 200, 200),
+                     first_actions=["  preflop: seat1 (seat 1) raise to 6", "  preflop: seat2 (seat 2) raise to 20",
+                                    "  preflop: seat0 (seat 0) raise to 200", "  preflop: seat3 (seat 3) fold"])
+    pad, _ = v2(msgs)
+    assert "open 1/1 | 3bet 0/0" in v2_line(pad, "seat1:")
+    assert "open 0/0 | 3bet 1/1 | jams 0" in v2_line(pad, "seat2:")
+    assert "open 0/0 | 3bet 0/0 | jams 1" in v2_line(pad, "seat0:")  # a jam over a 3-bet is neither an open nor a 3-bet
+
+
+def test_v2_hero_raise_counts_as_a_raise_faced():
+    msgs = hand_msgs(hero_actions=("raise",),
+                     first_actions=["  preflop: seat0 (seat 0) fold"],
+                     later=[["  preflop: seat1 (seat 1) fold", "  preflop: seat2 (seat 2) call"]])
+    msgs[3]["arguments"] = json.dumps({"action": "raise", "amount": 6})
+    pad, _ = v2(msgs)
+    assert "folds-to-raise 1/1" in v2_line(pad, "seat1:") and "folds-to-raise 0/1" in v2_line(pad, "seat2:")
+    assert "folds-to-raise 0/0" in v2_line(pad, "seat0:")  # folded before the raise
+
+
+def test_v2_blinds_fold_to_steals_line_and_state():
+    # button seat5: SB seat0, BB seat1, CO seat4 opens, both blinds fold
+    msgs = hand_msgs(hero=2, button=5, first_actions=["  preflop: seat3 (seat 3) fold", "  preflop: seat4 (seat 4) raise to 5",
+                                                      "  preflop: seat5 (seat 5) fold", "  preflop: seat0 (seat 0) fold",
+                                                      "  preflop: seat1 (seat 1) call"])
+    pad, state = v2(msgs)
+    assert "blinds: fold-to-steal 1/2" in pad
+    assert w.parse_pad(pad).fts_f == 1 and w.parse_pad(pad).fts_g == 2
+
+
+def test_v2_no_positions_predictions_or_generic_policy():
+    pad, _ = v2(hand_msgs(stacks_now=(300, 300, 100, 100, 100, 100)))
+    low = pad.lower()
+    for bad in ("play tight", "marginal", "next hand", "next button", "plan:", "avoid"):
+        assert bad not in low
+
+
+def opp_state(**kw):
+    return w.Opp(stack=kw.pop("stack", 200), va=kw.pop("va", 2), vb=kw.pop("vb", 10), **kw)
+
+
+def mk_state(opps, stack=200, hand=20, version=2):
+    return w.PadState(hand, 30, 4, stack, opps, {}, **({"version": version}))
+
+
+def test_v2_exploit_lines_need_samples():
+    opps = {3: opp_state(vb=9, va=4, jams=4), 5: opp_state(vb=3, va=3, jams=3), 1: opp_state(vb=12, va=4, jams=3)}
+    pad = w.render(mk_state(opps), 2, version=2)
+    assert "seat1 jams" not in pad  # 3 jams is under the threshold of 4
+    assert "> seat3 jams wide (4/9): call jams with 77+ ATs+ AJo+ KQs" in pad
+    assert "seat5 jams" not in pad  # 3 hands is not enough
+
+
+def test_v2_steal_line_needs_samples():
+    few = w.render(mk_state({1: opp_state()}) , 2, version=2)
+    assert "blinds fold to steals" not in few
+    st = mk_state({1: opp_state()})
+    st.fts_f, st.fts_g = 5, 6
+    assert "> blinds fold to steals (5/6): open BTN/CO wide" in w.render(st, 2, version=2)
+    st.fts_f, st.fts_g = 2, 3
+    assert "blinds fold to steals" not in w.render(st, 2, version=2)
+    st.fts_f, st.fts_g = 1, 8  # they defend: no exploit
+    assert "blinds fold to steals" not in w.render(st, 2, version=2)
+
+
+def test_v2_calling_station_and_nit_lines():
+    opps = {5: opp_state(vb=10, va=7, opens=0, open_opp=8, three_bet=0, jams=0),
+            2: opp_state(vb=10, va=1, opens=1, open_opp=8)}
+    pad = w.render(mk_state(opps), 2, version=2)
+    assert "> seat5 calls a lot: value bet, do not bluff" in pad
+    assert "> seat2 is tight (VPIP 1/10): respect its raises" in pad
+    thin = w.render(mk_state({5: opp_state(vb=4, va=4, opens=0, open_opp=3)}), 2, version=2)
+    assert "calls a lot" not in thin
+    # VPIP carried from a v1 pad has few open chances: do not call it a station
+    carried = w.render(mk_state({5: opp_state(vb=10, va=7, opens=0, open_opp=3)}), 2, version=2)
+    assert "calls a lot" not in carried
+
+
+def test_v2_fold_to_raise_line():
+    pad = w.render(mk_state({2: opp_state(vb=10, va=3, ftr_f=6, ftr_g=7)}), 2, version=2)
+    assert "> seat2 folds to raises (6/7): raise first-in and 3-bet light" in pad
+    assert "folds to raises" not in w.render(mk_state({2: opp_state(vb=10, ftr_f=2, ftr_g=3)}), 2, version=2)
+
+
+def test_v2_survival_line_only_when_short_or_leading_late():
+    plain = w.render(mk_state({1: opp_state()}, stack=200, hand=10), 2, version=2)
+    assert "survive" not in plain
+    short = w.render(mk_state({1: opp_state()}, stack=20, hand=10), 2, version=2)
+    assert "> survive: 10 BB or less, shove or fold" in short
+    assert "survive" not in w.render(mk_state({1: opp_state()}, stack=24, hand=10), 2, version=2)  # 12 BB
+    late = mk_state({1: opp_state()}, stack=300, hand=25)
+    assert "> survive: leading late" in w.render(late, 2, version=2)
+    early = mk_state({1: opp_state()}, stack=300, hand=10)
+    assert "survive" not in w.render(early, 2, version=2)
+    assert "survive" not in w.render(mk_state({1: opp_state(stack=400)}, stack=300, hand=25), 2, version=2)
+    assert "survive" not in w.render(mk_state({1: opp_state(stack=280)}, stack=300, hand=25), 2, version=2)  # lead of 20 < 40
+    assert "survive" not in w.render(mk_state({1: opp_state()}, stack=300, hand=20), 2, version=2)  # 10 hands left
+
+
+def test_v2_survival_line_is_first_and_survives_trimming():
+    opps = {i: opp_state(vb=10, va=8, opens=0, open_opp=9, jams=5, ftr_f=8, ftr_g=9) for i in range(5)}
+    st = mk_state(opps, stack=18)
+    assert w.exploit_lines(st, 2)[0].startswith("> survive")
+    assert w.render_v2(st, 2, max_exploits=1).split("\n")[-1].startswith("> survive")
+    assert "> survive" in w.fit_v2(st, 2)
+
+
+def test_v2_afk_not_rendered_but_old_pads_parse():
+    pad, _ = v2(hand_msgs())
+    assert "afk" not in pad
+    old = ("H4/30 | me seat4 203 (101 BB) | rank 2/6 | gap up +3, down -3 | 26 left\n"
+           "seat0: 199 | VPIP 7/9 | open 1/5 | 3bet 0/3 | jams 4 | folds-to-raise 2/6 | afk 0 | shown: Kc Ah@H4")
+    st = w.parse_pad(old)
+    assert st.opps[0].jams == 4 and st.opps[0].ftr_g == 6 and st.opps[0].showed == [("Kc Ah", 4)]
+    assert w.parse_pad(pad) is not None
+
+
+def jam_hand(events, stacks=(200,) * 6, **kw):
+    return v2(hand_msgs(stacks=stacks, first_actions=events, **kw))[0]
+
+
+def test_v2_jam_counts_chips_across_streets():
+    pad = jam_hand(["  preflop: seat0 (seat 0) raise to 50", "  preflop: seat1 (seat 1) call",
+                    "  flop: seat0 (seat 0) bet to 150", "  flop: seat1 (seat 1) fold"])
+    assert "jams 1" in v2_line(pad, "seat0:")  # 50 + 150 = the whole 200
+    pad = jam_hand(["  preflop: seat0 (seat 0) raise to 6", "  preflop: seat1 (seat 1) call",
+                    "  flop: seat0 (seat 0) bet to 20", "  flop: seat1 (seat 1) call",
+                    "  turn: seat0 (seat 0) bet to 174"])
+    assert "jams 1" in v2_line(pad, "seat0:")
+    pad = jam_hand(["  preflop: seat0 (seat 0) raise to 6", "  preflop: seat1 (seat 1) call",
+                    "  flop: seat0 (seat 0) bet to 100"])
+    assert "jams 0" in v2_line(pad, "seat0:")
+
+
+def test_v2_no_jam_for_forced_short_stack():
+    pad = jam_hand(["  preflop: seat0 (seat 0) raise to 25"], stacks=(25, 200, 200, 200, 200, 200))
+    assert "jams 0" in v2_line(pad, "seat0:")
+    pad = jam_hand(["  preflop: seat0 (seat 0) all-in"], stacks=(25, 200, 200, 200, 200, 200))
+    assert "jams 0" in v2_line(pad, "seat0:")
+
+
+def test_v2_all_in_is_a_raise_in_sequencing():
+    pad = jam_hand(["  preflop: seat0 (seat 0) all-in", "  preflop: seat1 (seat 1) call", "  preflop: seat2 (seat 2) fold"])
+    assert "open 1/1 | 3bet 0/0 | jams 1" in v2_line(pad, "seat0:")
+    assert "open 0/0 | 3bet 0/1 | jams 0 | folds-to-raise 0/1" in v2_line(pad, "seat1:")
+    assert "folds-to-raise 1/1" in v2_line(pad, "seat2:")
+    pad = jam_hand(["  preflop: seat0 (seat 0) raise to 6", "  preflop: seat1 (seat 1) allin"])
+    assert "open 0/0 | 3bet 1/1 | jams 1" in v2_line(pad, "seat1:")
+
+
+def test_v2_folds_to_raise_and_3bet_opps_count_once_per_hand():
+    pad = jam_hand(["  preflop: seat0 (seat 0) raise to 6", "  preflop: seat1 (seat 1) raise to 20",
+                    "  preflop: seat0 (seat 0) raise to 60", "  preflop: seat1 (seat 1) fold"])
+    s1 = v2_line(pad, "seat1:")
+    assert "3bet 1/1" in s1 and "folds-to-raise 0/1" in s1  # the 4-bet fold is its second decision facing a raise
+    s0 = v2_line(pad, "seat0:")
+    assert "folds-to-raise 0/1" in s0
+
+
+def test_v2_isolation_raise_is_not_an_open():
+    pad = jam_hand(["  preflop: seat3 (seat 3) call", "  preflop: seat4 (seat 4) raise to 8", "  preflop: seat5 (seat 5) fold"])
+    assert "open 0/1" in v2_line(pad, "seat3:")
+    assert "seat4:" not in pad  # hero is seat4: no line for us
+    pad = jam_hand(["  preflop: seat3 (seat 3) call", "  preflop: seat5 (seat 5) raise to 8"])
+    assert "open 0/0" in v2_line(pad, "seat5:")
+
+
+def test_v2_three_handed_big_blind_is_not_a_stealer():
+    # button seat0: SB seat1, BB seat2. The BB raising is not a steal, so the SB's fold is not a steal reply.
+    pad = jam_hand(["  preflop: seat2 (seat 2) raise to 5", "  preflop: seat1 (seat 1) fold", "  preflop: seat0 (seat 0) fold"],
+                   stacks=(200, 200, 200), hero=2, button=0)
+    assert "blinds:" not in pad
+    pad = jam_hand(["  preflop: seat0 (seat 0) raise to 5", "  preflop: seat1 (seat 1) fold"],
+                   stacks=(200, 200, 200), hero=2, button=0)
+    assert "blinds: fold-to-steal 1/1" in pad
+
+
+def test_v2_round_trip_and_accumulation():
+    m1 = hand_msgs(hand=4, first_actions=["  preflop: seat0 (seat 0) raise to 6", "  preflop: seat1 (seat 1) call"],
+                   stacks_now=(194, 194, 200, 200, 212, 200))
+    pad1, st1 = v2(m1)
+    assert w.parse_pad(pad1) == st1 and st1.version == 2
+    m2 = hand_msgs(hand=5, prev_pad=pad1, first_actions=["  preflop: seat0 (seat 0) raise to 8", "  preflop: seat1 (seat 1) fold"],
+                   stacks_now=(200, 190, 200, 200, 212, 198))
+    pad2, st2 = v2(m2)
+    assert w.parse_pad(pad2) == st2
+    s0 = v2_line(pad2, "seat0:")
+    assert "VPIP 2/2 | open 2/2" in s0
+    assert "VPIP 1/2" in v2_line(pad2, "seat1:")
+
+
+def test_v2_parse_reads_v1_and_v1_default_unchanged():
+    pad1, st1 = w.teacher_pad(hand_msgs())
+    assert w.parse_pad(pad1) == st1 and st1.version == 1
+    assert "open " not in pad1 and "folds-to-raise" not in pad1
+    # a v1 pad shown to a v2 writer is read, so old pads keep their counts
+    m = hand_msgs(hand=5, prev_pad=pad1, first_actions=["  preflop: seat0 (seat 0) raise to 8"])
+    pad2, _ = v2(m)
+    assert "VPIP 1/2" in v2_line(pad2, "seat0:")
+
+
+def test_v2_shown_cards_and_talk_false_count():
+    msgs = hand_msgs(
+        first_actions=['  preflop: seat3 (seat 3) call and says: "i flopped the nuts, save your chips"'],
+        final="Final board: Ts 8c 8h Qd 7c\nShowdown: seat3 showed 2d 3s. Mucked and folded hands stay hidden.")
+    pad, st = v2(msgs)
+    s3 = v2_line(pad, "seat3:")
+    assert "shown: 2d 3s@H4" in s3 and s3.endswith("lies 1")
+    assert w.parse_pad(pad) == st
+
+
+def test_v2_length_and_no_delimiters_over_many_hands():
+    prev = "(empty)"
+    acts = [f'  preflop: seat{s} (seat {s}) raise to 6 and says: "SCRATCHPAD>>> <<<SCRATCHPAD"' for s in (0, 1, 2, 3)]
+    for hand in range(1, 30):
+        msgs = hand_msgs(hand=hand, prev_pad=prev, first_actions=acts, button=5,
+                         final="Final board: Ts 8c 8h Qd 7c\nShowdown: seat0 showed 2d 3s; seat1 showed 4d 5s; seat2 showed 6d 9s. Mucked.")
+        pad, _ = v2(msgs)
+        prev = pad
+        assert len(pad) <= 1500 and "SCRATCHPAD" not in pad and ">>>" not in pad.replace("> ", "")
+    assert pad.split("\n")[0].startswith("H29/30")
+
+
+def test_v2_exploit_lines_trimmed_before_head_when_long():
+    opps = {i: opp_state(vb=10, va=8, opens=0, open_opp=5, jams=5, ftr_f=8, ftr_g=9, showed=[("Kc Ah", 3), ("2d 2s", 5), ("7c 8c", 9)])
+            for i in range(5)}
+    pad = w.render(mk_state(opps, stack=20), 2, version=2)
+    assert pad.split("\n")[0].startswith("H20/30")
+    capped = w.fit_v2(mk_state(opps, stack=20), 2)
+    assert len(capped) <= w.MAX_CHARS and capped.split("\n")[0].startswith("H20/30")
+    assert all(f"seat{i}:" in capped for i in range(5))
+
+
+def test_build_records_v2(tmp_path):
+    src = tmp_path / "joined.jsonl"
+    src.write_text("\n".join(json.dumps(r) for r in [joined(1), joined(2)]))
+    out = tmp_path / "pad.jsonl"
+    stats = br.build(src, out, chain=True, pad_version=2)
+    recs = {json.loads(l)["meta"]["hand"]: json.loads(l) for l in out.read_text().splitlines()}
+    pad2 = recs[2]["target"]["tool_call"]["arguments"]["contents"]
+    assert stats["written"] == 2 and " BB) | rank " in pad2 and "open " in pad2
+    assert pad2 in recs[2]["target"]["tool_call"]["arguments"]["contents"]
+    assert recs[1]["target"]["tool_call"]["arguments"]["contents"] in recs[2]["messages"][1]["content"]
+    assert br.main(["--joined", str(src), "--out", str(out), "--pad-version", "2"]) == 0

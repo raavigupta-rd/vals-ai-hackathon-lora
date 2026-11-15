@@ -19,7 +19,9 @@ student prompt; SFT/OPSD inputs stay exactly what the model saw at decision time
 
 from __future__ import annotations
 
+import json
 import random
+from pathlib import Path
 from functools import lru_cache
 
 RANKS = "23456789TJQKA"
@@ -85,6 +87,7 @@ def equity_vs_range(hole: list[str], codes: list[str], board: list[str] = (), sa
 
 
 # v5 exploit rules, each on only when named here, e.g. EXPLOITS = {"river_fold", "steal", "stab"}; also "oversize", "monster_call", "river_air_fold".
+# v7: "rfi_gto", "iso_raise", "three_bet", "bb_defend", "vs_3bet", "postflop_sizing" (see the teacher v7 section).
 EXPLOITS: set[str] = set()
 STEAL_RANGES = {
     "CO": "22+ A2s+ K5s+ Q8s+ J8s+ T8s+ 97s+ 86s+ 76s 65s A7o+ K9o+ QTo+ JTo",
@@ -551,6 +554,8 @@ def judge(con, match_id: str, hand: int, seat: int, action_index: int) -> dict:
         return v
     if row["street"] in BOARD_CARDS and (v := _v6_postflop(con, rows, row, verdict, match_id, hand, seat)):
         return v
+    if "postflop_sizing" in EXPLOITS and (v := _postflop_sizing(con, row, verdict, match_id, hand, seat)):
+        return v
     if row["street"] in BOARD_CARDS and row["to_call"] > 0 and actual in ("call", "fold"):
         return _judge_postflop(con, rows, row, verdict, match_id, hand, seat)
     if row["street"] != "preflop" or not row["hand_code"]:
@@ -563,6 +568,9 @@ def judge(con, match_id: str, hand: int, seat: int, action_index: int) -> dict:
         return v
     if "big_price_fold" in EXPLOITS and (v := _big_price_fold(row, stack0, verdict)):
         return v
+    for name, rule in V7_PREFLOP:
+        if name in EXPLOITS and (v := rule(row, before, raises, stack0, verdict)):
+            return v
     if "raise_first_in" in EXPLOITS and (v := _raise_first_in(row, before, raises, verdict)):
         return v
     if "oversize" in EXPLOITS and (v := _oversize(row, before, raises, verdict)):
@@ -893,10 +901,300 @@ def _v6_postflop(con, rows, row, verdict, match_id, hand, seat) -> dict | None:
     return None
 
 
+# ---- teacher v7 rules (each on only when named in EXPLOITS): GTO-style preflop ranges and postflop sizing ----
+V7_MIN_BB = 25  # shallower than this the chart is shove-or-fold territory: v7 preflop rules abstain
+RFI_GTO = {
+    "UTG": "44+ ATs+ A5s A4s KTs+ QTs+ JTs AQo+ KQo",
+    "HJ": "33+ A2s+ K9s+ Q9s+ J9s+ T9s 98s 87s 76s ATo+ KJo+ QJo",
+    "CO": "22+ A2s+ K6s+ Q8s+ J8s+ T8s+ 97s+ 86s+ 75s+ 65s 54s A9o+ KTo+ QTo+ JTo",
+    "BTN": "22+ A2s+ K2s+ Q4s+ J6s+ T6s+ 96s+ 85s+ 75s+ 64s+ 53s+ 43s A2o+ K8o+ Q9o+ J9o+ T9o 98o",
+    "SB": "22+ A2s+ K2s+ Q5s+ J7s+ T7s+ 97s+ 86s+ 76s 65s 54s A2o+ K8o+ Q9o+ J9o+ T9o",
+}
+RFI_SIZE = {"UTG": 5, "HJ": 5, "CO": 5, "BTN": 5, "SB": 6}
+ISO_RANGE = "22+ A2s+ KTs+ QJs JTs AJo+ KQo"
+ISO_BASE, ISO_PER_LIMPER = 4, 2
+THREE_BET_VALUE = {"UTG": "QQ+ AKs AKo", "HJ": "QQ+ AKs AKo", "CO": "JJ+ AQs+ AKo",
+                   "BTN": "TT+ AQs+ AQo+ KQs", "SB": "99+ ATs+ AJo+ KQs"}
+THREE_BET_MAX_OPEN = 12  # bigger opens belong to the big-price rules
+POSTFLOP_ORDER = ("SB", "BB", "UTG", "HJ", "CO", "BTN")  # who acts last after the flop is in position
+DEFEND_LATE = "22+ A2s+ K5s+ Q7s+ J8s+ T8s+ 97s+ 86s+ 75s+ 65s 54s A8o+ KTo+ QTo+ JTo T9o"
+DEFEND_EARLY = "22+ A2s+ K9s+ QTs+ JTs T9s 98s 87s ATo+ KJo+"
+DEFEND_BIG = "22+ A2s+ K9s+ QTs+ J8s+ T8s+ 97s+ 86s+ 75s+ 65s 54s A9o+ KJo+ QJo T9o"  # a 3x+ open: trash dropped
+DEFEND_MARGINAL_OFFSUIT = "K9o Q9o J9o T8o 98o 87o 76o"  # near break-even against a late open at a good price
+DEFEND_MAX_REQUIRED = 0.28
+VS3_TOP = {"AA", "KK", "QQ", "AKs", "AKo"}
+VS3_IP_CALL = {"JJ", "TT", "AQs"}
+VS3_MAX_PRICE_FRAC, VS3_SMALL_PRICE_FRAC, VS3_4BET_FACTOR = 0.20, 0.10, 2.3
+SIZE_BANDS = {"dry": (0.0, 0.6, 0.33, 0.5), "wet": (0.5, 0.9, 0.7, 0.75), "river": (0.0, 1.1, 0.6, 0.75)}  # lo, hi, target, cap
+WEAK_VALUE_MAX_RANK = RANKS.index("J")
+WEAK_VALUE_HU_BET_FRAC = 0.5  # heads up, a bet of half the pot or less is a fine stab
+MIN_BET_CHIPS = 2  # the big blind
+
+
+def _v7_preflop(row, before, raises, stack0):
+    """(position, hand code, limpers) when a v7 preflop rule may judge this row, else None: preflop, a fold or call
+    (or a non-all-in raise), a known seat, a real stack, and no all-in anywhere in front of us."""
+    if row["street"] != "preflop" or not row["hand_code"] or row["position"] is None or (row["to_call"] or 0) <= 0:
+        return None
+    if row["facing_allin"] or any(r["stack_after"] == 0 for r in raises) or (row["effective_stack"] or stack0) / 2 < V7_MIN_BB:
+        return None
+    limpers = sum(1 for r in before if r["street"] == "preflop" and r["action"] == "call" and not raises)
+    return row["position"], row["hand_code"], limpers
+
+
+def _v7_verdict(verdict, rule, preferred, **extra) -> dict:
+    return verdict | {"rule": rule, "preferred": preferred, "agree": False} | extra
+
+
+def _rfi_gto(row, before, raises, stack0, verdict) -> dict | None:
+    """Rule `rfi_gto`: first in with no limper. A fold or limp of a hand in the seat's chart is a raise to 5 (6 from
+    the SB); an open-limp of a hand outside the chart is a fold. A fold of an outside hand is never corrected."""
+    ctx = _v7_preflop(row, before, raises, stack0)
+    if ctx is None or raises or row["action"] not in ("fold", "call"):
+        return None
+    position, code, limpers = ctx
+    if limpers or position not in RFI_GTO:
+        return None
+    if in_range(code, RFI_GTO[position]):
+        return _v7_verdict(verdict, "rfi_gto", "raise", target_amount=RFI_SIZE[position])
+    return _v7_verdict(verdict, "rfi_gto", "fold") if row["action"] == "call" else None
+
+
+def _iso_raise(row, before, raises, stack0, verdict) -> dict | None:
+    """Rule `iso_raise`: limpers in front and nobody raised. A fold or limp behind with an isolation hand is a raise to
+    4 + 2 per limper; limping behind with anything else is a fold."""
+    ctx = _v7_preflop(row, before, raises, stack0)
+    if ctx is None or raises or row["action"] not in ("fold", "call"):
+        return None
+    position, code, limpers = ctx
+    if not limpers or position not in RFI_GTO:
+        return None
+    hi, _, kind = _parts(code)
+    playable = in_range(code, ISO_RANGE) or (position in ("CO", "BTN") and (kind == "s" or hi == RANKS.index("A")))
+    if playable:
+        return _v7_verdict(verdict, "iso_raise", "raise", target_amount=ISO_BASE + ISO_PER_LIMPER * limpers)
+    return _v7_verdict(verdict, "iso_raise", "fold") if row["action"] == "call" else None
+
+
+def _single_open(row, before, raises):
+    """The one non-all-in raise we face with no caller after it, or None."""
+    if len(raises) != 1 or raises[0]["seat"] == row["seat"] or not raises[0]["amount"]:
+        return None
+    if any(r["action"] == "call" and r["idx"] > raises[0]["idx"] for r in before):
+        return None
+    return raises[0]
+
+
+def _in_position(hero: str, other: str) -> bool | None:
+    if hero not in POSTFLOP_ORDER or other not in POSTFLOP_ORDER:
+        return None
+    return POSTFLOP_ORDER.index(hero) > POSTFLOP_ORDER.index(other)
+
+
+def _three_bet(row, before, raises, stack0, verdict) -> dict | None:
+    """Rule `three_bet`: one open in front of us and no caller. A flat call or fold of the value range for the opener's
+    seat is a 3-bet to 3x the open in position, 4x out of it. Bluff 3-bets are never forced."""
+    ctx = _v7_preflop(row, before, raises, stack0)
+    opener = _single_open(row, before, raises) if ctx else None
+    if opener is None or row["action"] not in ("fold", "call") or opener["amount"] > THREE_BET_MAX_OPEN:
+        return None
+    spec, ip = THREE_BET_VALUE.get(opener["position"]), _in_position(ctx[0], opener["position"])
+    if not spec or ip is None or not in_range(ctx[1], spec):
+        return None
+    return _v7_verdict(verdict, "three_bet", "raise", target_amount=round(opener["amount"] * (3 if ip else 4)))
+
+
+def _bb_defend(row, before, raises, stack0, verdict) -> dict | None:
+    """Rule `bb_defend`: big blind facing one open and no caller. A fold of a hand in the defend range for the opener's
+    seat is a call when the price is 28% or less; a call with an offsuit hand outside the range is a fold."""
+    ctx = _v7_preflop(row, before, raises, stack0)
+    opener = _single_open(row, before, raises) if ctx else None
+    if opener is None or ctx[0] != "BB" or row["action"] not in ("fold", "call") or opener["position"] is None:
+        return None
+    code, to_call = ctx[1], row["to_call"]
+    required = to_call / (row["pot_before"] + to_call)
+    cheap, early = required <= DEFEND_MAX_REQUIRED, opener["position"] in ("UTG", "HJ")
+    inside = in_range(code, DEFEND_EARLY if early else DEFEND_LATE if cheap else DEFEND_BIG)
+    if row["action"] == "fold":
+        return _v7_verdict(verdict, "bb_defend", "call", required=round(required, 4)) if inside and cheap else None
+    hi, lo, kind = _parts(code)
+    if inside or hi == lo or kind != "o" or (cheap and not early and in_range(code, DEFEND_MARGINAL_OFFSUIT)):
+        return None
+    return _v7_verdict(verdict, "bb_defend", "fold", required=round(required, 4))
+
+
+def _vs_3bet(row, before, raises, stack0, verdict) -> dict | None:
+    """Rule `vs_3bet`: we opened and face a 3-bet that is not a jam, for under 20% of our stack, with nobody calling
+    behind it. QQ+ and AK continue (AA/KK 4-bet when the price is small), JJ/TT/AQs call in position; every other hand is
+    left to `field_call`."""
+    ctx = _v7_preflop(row, before, raises, stack0)
+    if ctx is None or len(raises) != 2 or raises[0]["seat"] != row["seat"] or raises[1]["seat"] == row["seat"]:
+        return None
+    if any(r["action"] == "call" and r["idx"] > raises[1]["idx"] for r in before):
+        return None  # a cold call after the 3-bet: squeeze spot, the price is not what it looks like
+    if row["stack_after"] == 0 or not stack0 or row["to_call"] > VS3_MAX_PRICE_FRAC * stack0:
+        return None
+    position, code, action = ctx[0], ctx[1], row["action"]
+    if code in VS3_TOP:
+        if code in ("AA", "KK") and row["to_call"] <= VS3_SMALL_PRICE_FRAC * stack0 and action in ("fold", "call"):
+            return _v7_verdict(verdict, "vs_3bet", "raise", target_amount=round(VS3_4BET_FACTOR * raises[1]["amount"]))
+        return _v7_verdict(verdict, "vs_3bet", "call") if action == "fold" else None
+    if code in VS3_IP_CALL:
+        return _v7_verdict(verdict, "vs_3bet", "call") if action == "fold" and _in_position(position, raises[1]["position"]) else None
+    return None  # every other hand goes to `field_call`, which prices the spot against the field's 3-bet range
+
+
+def _board_is_wet(board: list[str]) -> bool:
+    """Two-tone flop, three of a suit later, or three ranks inside a four-rank window. Paired boards count as dry."""
+    ranks = [RANKS.index(c[0]) + 2 for c in board]
+    if len(set(ranks)) < len(ranks):
+        return False
+    suit_most = max(sum(1 for c in board if c[1] == s) for s in SUITS)
+    if suit_most >= (2 if len(board) == 3 else 3):
+        return True
+    values = sorted(set(ranks) | ({1} if 14 in ranks else set()))
+    return any(values[i + 2] - values[i] <= 3 for i in range(len(values) - 2))
+
+
+def _postflop_sizing(con, row, verdict, match_id, hand, seat) -> dict | None:
+    """Rule `postflop_sizing`: our own non-all-in bet. J-high or worse with no pair and no draw on the flop or turn is a
+    check. Otherwise (a monster may size freely) the bet should be about 33% of the pot on a dry board, 66-75% on a wet
+    one, never above 1.1x pot; sizes outside the band get the target and a cap (and a floor on wet boards)."""
+    if row["action"] != "bet" or row["street"] not in BOARD_CARDS or row["stack_after"] == 0 or row["bet_frac"] is None:
+        return None
+    hole, board = _hole(con, match_id, hand, seat), _board_for(con, match_id, hand, row["street"])
+    if not hole or not board:
+        return None
+    pot = row["pot_before"]
+    if (row["street"] != "river" and strength_class(hole, board) == "air"
+            and max(RANKS.index(c[0]) for c in hole) <= WEAK_VALUE_MAX_RANK
+            and ((row["players_remaining"] or 0) >= 3 or row["bet_frac"] > WEAK_VALUE_HU_BET_FRAC)
+            and not _has_gutshot(hole, board)):
+        return _v7_verdict(verdict, "postflop_sizing", "check", reason="weak_value")
+    if _is_monster(hole, board):
+        return None
+    texture = "river" if row["street"] == "river" else "wet" if _board_is_wet(board) else "dry"
+    lo, hi, target, cap = SIZE_BANDS[texture]
+    if lo <= row["bet_frac"] <= hi:
+        return None
+    legal_min = max(MIN_BET_CHIPS, round(lo * pot))
+    stack_before = row["stack_after"] - (row["chip_change"] or 0)
+    if legal_min > round(cap * pot) or (lo and stack_before <= legal_min):
+        return None  # the legal minimum is out of reach: no size can meet the band
+    extra = {"min_amount": round(lo * pot)} if lo else {}
+    return _v7_verdict(verdict, "postflop_sizing", "bet", reason="overbet" if row["bet_frac"] > hi else "mis_size",
+                       texture=texture, target_frac=target, target_amount=round(cap * pot), **extra)
+
+
+def _has_gutshot(hole: list[str], board: list[str]) -> bool:
+    """Four of the five ranks in some straight window are held (hole cards must be among them): a 4-out draw."""
+    held = {RANKS.index(c[0]) + 2 for c in hole}
+    ranks = {RANKS.index(c[0]) + 2 for c in list(hole) + list(board)}
+    held |= {1} if 14 in held else set()
+    ranks |= {1} if 14 in ranks else set()
+    return any(len(set(range(low, low + 5)) & ranks) >= 4 and set(range(low, low + 5)) & held for low in range(1, 11))
+
+
+# ---- field_call: preflop price check against the empirical field range (poker/ranges.py) ----
+FIELD_RANGES_PATH = Path(__file__).resolve().parent.parent / "data" / "ranges" / "field_ranges.json"
+FIELD_SAMPLES = 1000
+FIELD_FOLD_MARGIN, FIELD_CALL_MARGIN, FIELD_BIG_CALL_MARGIN = 0.04, 0.06, 0.10
+FIELD_BIG_STACK_FRAC = 0.40
+# Fold-to-call only: raw heads-up equity overstates what a hand wins when it plays the flop out of position, so the
+# blinds realize less of it; offsuit hands outside broadways and big aces are never turned into calls.
+FIELD_REALIZE_OOP, FIELD_REALIZE_IP = 0.80, 0.92
+FIELD_OFFSUIT_CALLS = "A9o+ KTo+ QTo+ JTo"
+_FIELD_TABLE: dict | None = None
+_FIELD_LOADED = False
+_FIELD_EQ: dict = {}
+
+
+def _field_table() -> dict | None:
+    """The field range table, loaded once; None when the file is missing or unreadable."""
+    global _FIELD_TABLE, _FIELD_LOADED
+    if not _FIELD_LOADED:
+        _FIELD_LOADED = True
+        try:
+            _FIELD_TABLE = json.loads(FIELD_RANGES_PATH.read_text())
+        except (OSError, ValueError):
+            _FIELD_TABLE = None
+    return _FIELD_TABLE
+
+
+def _field_equity(table: dict, code: str, situation: str, position: str, size: str | None) -> float:
+    key = (code, situation, position, size)
+    if key not in _FIELD_EQ:
+        from poker import ranges
+
+        probs = ranges.range_probs(table, situation, position, size)
+        _FIELD_EQ[key] = ranges.equity_vs_range(ranges.expand(code)[0], probs, n=FIELD_SAMPLES, seed=11)
+    return _FIELD_EQ[key]
+
+
+def _field_spot(row, before, raises) -> tuple[str, str, str | None] | None:
+    """(situation, raiser position, size bucket) when we face exactly one live aggressor with nobody else in the pot,
+    else None. One open -> `open`, a 3-bet -> `3bet`, an all-in or a 4-bet and up -> `jam`."""
+    pre = [r for r in before if r["street"] == "preflop"]
+    if not raises or raises[-1]["seat"] == row["seat"] or raises[-1]["position"] is None:
+        return None
+    if any(r["action"] == "call" for r in pre):
+        return None  # a limper or a caller: multiway, the heads-up price is wrong
+    last = raises[-1]
+    if row["facing_allin"] or last["stack_after"] == 0 or len(raises) >= 3:
+        return "jam", last["position"], None
+    if len(raises) == 1:
+        from poker.ranges import size_bucket
+
+        return "open", last["position"], size_bucket(last["amount"] or 0)
+    return "3bet", last["position"], None
+
+
+def _field_call(row, before, raises, stack0, verdict) -> dict | None:
+    """Rule `field_call`: preflop, one aggressor in front and nobody else in. Our equity against the field's range for
+    that spot is compared with the pot odds. A call or raise well below the price is a fold; a fold well above it is a
+    call (above 40% of our stack the fold needs 10 points of cushion, so huge prices stay folds)."""
+    to_call = row["to_call"] or 0
+    if (row["street"] != "preflop" or not row["hand_code"] or to_call <= 0 or not stack0
+            or row["action"] not in ("fold", "call", "raise")):
+        return None
+    spot = _field_spot(row, before, raises)
+    table = _field_table() if spot else None
+    if not table:
+        return None
+    situation, position, size = spot
+    equity = _field_equity(table, row["hand_code"], situation, position, size)
+    required = to_call / (row["pot_before"] + to_call)
+    extra = {"equity": round(equity, 4), "required": round(required, 4), "situation": situation, "raiser_position": position}
+    if row["action"] in ("call", "raise"):
+        return _v7_verdict(verdict, "field_call", "fold", **extra) if equity < required - FIELD_FOLD_MARGIN else None
+    code = row["hand_code"]
+    if code.endswith("o") and code not in _field_offsuit_calls():
+        return None
+    realize = FIELD_REALIZE_OOP if row["position"] in ("SB", "BB") else FIELD_REALIZE_IP
+    margin = FIELD_BIG_CALL_MARGIN if to_call > FIELD_BIG_STACK_FRAC * stack0 else FIELD_CALL_MARGIN
+    return _v7_verdict(verdict, "field_call", "call", **extra) if equity * realize > required + margin else None
+
+
+_OFFSUIT_CALLS: set | None = None
+
+
+def _field_offsuit_calls() -> set:
+    global _OFFSUIT_CALLS
+    if _OFFSUIT_CALLS is None:
+        _OFFSUIT_CALLS = set(_range_set(FIELD_OFFSUIT_CALLS))
+    return _OFFSUIT_CALLS
+
+
+V7_PREFLOP = (("rfi_gto", _rfi_gto), ("iso_raise", _iso_raise), ("three_bet", _three_bet), ("bb_defend", _bb_defend),
+              ("vs_3bet", _vs_3bet), ("field_call", _field_call))
+
+
 def agrees(verdict: dict, action: str, amount=None, *, min_amount=None) -> bool:
     """Whether a (re)played action matches the verdict. With a `target_amount`, it must be a raise or bet no larger
     than that amount, and at least `min_amount` (the legal minimum) when that is known."""
     preferred = verdict.get("preferred")
+    if min_amount is None:
+        min_amount = verdict.get("min_amount")
     if not (action == preferred or (preferred == "raise" and action == "bet")):
         return False
     cap = verdict.get("target_amount")

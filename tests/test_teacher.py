@@ -64,7 +64,7 @@ def test_free_fold_is_always_wrong():
 
 
 from poker.arena import db
-from poker.teacher import judge, shove_range
+from poker.teacher import agrees, judge, shove_range
 
 
 def _match(mid, hands):
@@ -964,7 +964,7 @@ def _pad_db(cards, action, price=60, hand=9, extra_live=False):
 
 
 def _pad_judge(monkeypatch, pad, cards, action, price=60, hand=9, **kw):
-    monkeypatch.setattr(_t, "PAD_INDEX", None if pad is None else {"_pads": {("m_x", 0): {hand: pad}}})
+    monkeypatch.setattr(_t, "PAD_INDEX", None if pad is None else {"_pads": {("m_x", 0, 1): {hand: pad}}})
     return judge(_pad_db(cards, action, price, hand, **kw), "m_x", hand, seat=0, action_index=0)
 
 
@@ -1085,3 +1085,427 @@ def test_folding_a_premium_first_in_is_always_corrected(exploits):
     for seat, cards in ((3, ["Ah", "Ad"]), (4, ["Ks", "Kh"]), (0, ["Ac", "Kd"]), (3, ["Ac", "Qd"])):
         v = _judge1(_pre_db(seat, cards, "fold", nseats=6), seat)
         assert v["rule"] == "raise_first_in" and v["preferred"] == "raise", (seat, cards)
+
+
+# ---- teacher v7: rfi_gto, iso_raise, three_bet, bb_defend, vs_3bet, postflop_sizing; OFF unless named ----
+# 6 seats: BTN 0, SB 1, BB 2, UTG 3, HJ 4, CO 5. Every v7 test spells out pot and to_call itself.
+
+def _hero(seat, action, amount, pot, to_call, before=200):
+    change = 0 if action in ("fold", "check") else -(amount if action == "raise" else to_call)
+    return _act(seat, action, amount, pot, to_call, change, before + change)
+
+
+def _limp(seat, pot=3):
+    return _act(seat, "call", None, pot, 2, -2, 198)
+
+
+def _open(seat, amount, pot=3, to_call=2):
+    return _act(seat, "raise", amount, pot, to_call, -amount, 200 - amount)
+
+
+def _v7(hero, cards, acts, nseats=6, stack=200):
+    """Judge the last action in `acts`, which must be hero's; earlier hero actions count in the action index."""
+    players = [{"seat": s, "hole_cards": cards if s == hero else ["2c", "3d"], "starting_stack": stack} for s in range(nseats)]
+    hand = {"hand_number": 1, "button_seat": 0, "blinds": {"1": 1, "2": 2}, "players": players, "board": [],
+            "showdown": False, "shown": {}, "actions": acts}
+    mine = sum(1 for a in acts if a["seat"] == hero)
+    return judge(_xdb([hand], nseats=nseats), "m_x", 1, seat=hero, action_index=mine - 1)
+
+
+def _rfi(hero, cards, action, amount=None, to_call=2, stack=200):
+    h = _hero(hero, action, amount, 3, 1 if hero == 1 else to_call, before=stack)
+    return _v7(hero, cards, [h], stack=stack)
+
+
+V7_RULES = ("rfi_gto", "iso_raise", "three_bet", "bb_defend", "vs_3bet", "postflop_sizing", "field_call")
+
+
+def test_v7_rules_are_off_by_default():
+    for v in (_rfi(3, ["Ah", "Qh"], "fold"), _rfi(1, ["7h", "2d"], "call")):
+        assert v["rule"] not in V7_RULES
+
+
+def test_rfi_gto_raises_in_range_hands_instead_of_folding_or_limping(exploits):
+    exploits("rfi_gto")
+    cases = ((3, ["Ah", "Qh"], 5), (3, ["4h", "4d"], 5), (4, ["6h", "6d"], 5), (4, ["Qh", "Jd"], 5),
+             (5, ["8h", "7h"], 5), (5, ["Kh", "6h"], 5), (0, ["Kh", "8d"], 5), (0, ["5h", "3h"], 5),
+             (1, ["Ah", "2d"], 6), (1, ["Qh", "5h"], 6))
+    for seat, cards, size in cases:
+        for action in ("fold", "call"):
+            v = _rfi(seat, cards, action)
+            assert (v["rule"], v["preferred"], v["agree"], v["target_amount"]) == ("rfi_gto", "raise", False, size), (seat, cards, action)
+
+
+def test_rfi_gto_never_corrects_folds_or_raises_of_out_of_range_hands(exploits):
+    exploits("rfi_gto")
+    for seat, cards in ((3, ["Kh", "9h"]), (3, ["Ah", "5d"]), (4, ["8h", "7d"]), (5, ["7h", "2d"]), (0, ["9h", "4d"]), (1, ["Jh", "5d"])):
+        assert _rfi(seat, cards, "fold")["rule"] != "rfi_gto", (seat, cards)
+    assert _rfi(3, ["Kh", "9h"], "raise", 5)["rule"] != "rfi_gto"  # a loose open is not corrected
+    assert _rfi(3, ["Ah", "Qh"], "raise", 5)["rule"] != "rfi_gto"  # in range and already raising
+
+
+def test_rfi_gto_flags_open_limps_of_out_of_range_hands(exploits):
+    exploits("rfi_gto")
+    for seat, cards in ((3, ["9h", "8h"]), (5, ["7h", "2d"]), (1, ["7h", "2d"])):
+        v = _rfi(seat, cards, "call")
+        assert (v["rule"], v["preferred"], v["agree"]) == ("rfi_gto", "fold", False), (seat, cards)
+
+
+def test_rfi_gto_needs_an_unopened_pot_a_seat_and_a_real_stack(exploits):
+    exploits("rfi_gto")
+    assert _rfi(2, ["Ah", "Qh"], "check", to_call=0)["rule"] != "rfi_gto"  # big blind
+    limped = _v7(0, ["8h", "8d"], [_limp(3), _hero(0, "fold", None, 5, 2)])
+    assert limped["rule"] != "rfi_gto"
+    raised = _v7(0, ["8h", "8d"], [_open(3, 5), _hero(0, "fold", None, 8, 5)])
+    assert raised["rule"] != "rfi_gto"
+    assert _rfi(0, ["8h", "8d"], "fold", stack=40)["rule"] != "rfi_gto"  # 20bb: shove-or-fold territory
+
+
+def test_iso_raise_isolates_limpers_with_good_hands(exploits):
+    exploits("iso_raise")
+    one = _v7(0, ["8h", "8d"], [_limp(3), _hero(0, "fold", None, 5, 2)])
+    assert (one["rule"], one["preferred"], one["agree"], one["target_amount"]) == ("iso_raise", "raise", False, 6)
+    two = _v7(0, ["Qh", "Jh"], [_limp(3), _limp(4, 5), _hero(0, "call", None, 7, 2)])
+    assert (two["rule"], two["preferred"], two["target_amount"]) == ("iso_raise", "raise", 8)
+    for cards in (["7h", "5h"], ["Ah", "3d"]):  # any suited or any ace on the button
+        v = _v7(0, cards, [_limp(3), _hero(0, "fold", None, 5, 2)])
+        assert v["rule"] == "iso_raise" and v["preferred"] == "raise", cards
+    sb = _v7(1, ["Ah", "Jd"], [_limp(3), _hero(1, "call", None, 5, 1)])
+    assert sb["rule"] == "iso_raise" and sb["target_amount"] == 6
+
+
+def test_iso_raise_folds_overlimps_and_leaves_other_spots_alone(exploits):
+    exploits("iso_raise")
+    over = _v7(4, ["7h", "5h"], [_limp(3), _hero(4, "call", None, 5, 2)])  # suited junk from the hijack
+    assert (over["rule"], over["preferred"], over["agree"]) == ("iso_raise", "fold", False)
+    assert _v7(4, ["7h", "5h"], [_limp(3), _hero(4, "fold", None, 5, 2)])["rule"] != "iso_raise"
+    assert _v7(0, ["8h", "8d"], [_limp(3), _hero(0, "raise", 6, 5, 2)])["rule"] != "iso_raise"
+    assert _v7(0, ["8h", "8d"], [_open(3, 5), _hero(0, "fold", None, 8, 5)])["rule"] != "iso_raise"
+    assert _v7(2, ["8h", "8d"], [_limp(3), _hero(2, "check", None, 5, 0)])["rule"] != "iso_raise"  # big blind
+
+
+def test_three_bet_value_hands_raise_instead_of_calling_or_folding(exploits):
+    exploits("three_bet")
+    for action in ("call", "fold"):
+        ip = _v7(5, ["Qh", "Qd"], [_open(3, 5), _hero(5, action, None, 8, 5)])  # cutoff vs UTG, in position
+        assert (ip["rule"], ip["preferred"], ip["agree"], ip["target_amount"]) == ("three_bet", "raise", False, 15), action
+    oop = _v7(2, ["Ah", "Kd"], [_open(0, 5), _hero(2, "call", None, 8, 3)])  # big blind vs button, out of position
+    assert (oop["rule"], oop["preferred"], oop["target_amount"]) == ("three_bet", "raise", 20)
+    vs_sb = _v7(2, ["9h", "9d"], [_open(1, 6, to_call=1), _hero(2, "call", None, 9, 4)])
+    assert (vs_sb["rule"], vs_sb["target_amount"]) == ("three_bet", 18)  # the big blind acts last after the flop: 3x
+    vs_btn = _v7(1, ["Ah", "Qh"], [_open(0, 5), _hero(1, "fold", None, 8, 4)])  # AQs vs a button open
+    assert vs_btn["rule"] == "three_bet" and vs_btn["preferred"] == "raise"
+
+
+def test_three_bet_never_forces_bluffs_or_corrects_what_it_cannot_judge(exploits):
+    exploits("three_bet")
+    assert _v7(5, ["Ah", "5h"], [_open(3, 5), _hero(5, "fold", None, 8, 5)])["rule"] != "three_bet"  # bluff, not forced
+    assert _v7(5, ["Jh", "Jd"], [_open(3, 5), _hero(5, "call", None, 8, 5)])["rule"] != "three_bet"  # JJ vs UTG
+    assert _v7(5, ["Qh", "Qd"], [_open(3, 5), _hero(5, "raise", 15, 8, 5)])["rule"] != "three_bet"
+    assert _v7(5, ["Qh", "Qd"], [_open(3, 5), _limp(4, 8), _hero(5, "call", None, 10, 5)])["rule"] != "three_bet"  # caller
+    assert _v7(5, ["Qh", "Qd"], [_act(3, "raise", 200, 3, 2, -200, 0), _hero(5, "fold", None, 203, 200)])["rule"] != "three_bet"
+
+
+def _bb_defend(cards, action, opener=5, size=5):
+    to_call = size - 2
+    return _v7(2, cards, [_open(opener, size), _hero(2, action, None, 3 + size, to_call)])
+
+
+def test_bb_defend_calls_in_range_hands_at_a_good_price(exploits):
+    exploits("bb_defend")
+    for cards in (["8h", "7h"], ["Qh", "Td"], ["5h", "5d"], ["Ah", "3h"], ["Kh", "7h"]):  # vs a cutoff open to 5
+        v = _bb_defend(cards, "fold")
+        assert (v["rule"], v["preferred"], v["agree"]) == ("bb_defend", "call", False), cards
+    for cards in (["9h", "4d"], ["Kh", "6d"], ["Jh", "8d"]):
+        assert _bb_defend(cards, "fold")["rule"] != "bb_defend", cards  # folding trash is right
+
+
+def test_bb_defend_tightens_against_early_openers_and_bigger_opens(exploits):
+    exploits("bb_defend")
+    assert _bb_defend(["Ah", "Td"], "fold", opener=3)["preferred"] == "call"  # ATo vs UTG
+    assert _bb_defend(["Qh", "Td"], "fold", opener=3)["rule"] != "bb_defend"  # QTo vs UTG is a fold
+    assert _bb_defend(["8h", "7h"], "fold", opener=3)["preferred"] == "call"
+    assert _bb_defend(["Kh", "9d"], "call", opener=3)["preferred"] == "fold"
+    # open to 7: 5 to call into 10 is 33%, over the 28% threshold, so a fold is never turned into a call
+    assert _bb_defend(["8h", "7h"], "fold", size=7)["rule"] != "bb_defend"
+    assert _bb_defend(["Ah", "8d"], "call", size=7)["preferred"] == "fold"  # A8o is dropped against a big open
+
+
+def test_bb_defend_folds_offsuit_trash_calls_but_not_suited_ones(exploits):
+    exploits("bb_defend")
+    for cards in (["9h", "4d"], ["Kh", "6d"], ["Jh", "7d"], ["8h", "2d"]):
+        v = _bb_defend(cards, "call")
+        assert (v["rule"], v["preferred"], v["agree"]) == ("bb_defend", "fold", False), cards
+    assert _bb_defend(["9h", "4h"], "call")["rule"] != "bb_defend"
+    assert _bb_defend(["8h", "7d"], "call")["rule"] != "bb_defend"  # marginal connected offsuit hands are not flagged
+    assert _bb_defend(["Kh", "9d"], "call")["rule"] != "bb_defend"  # K9o vs a late open at a good price is marginal
+    assert _bb_defend(["Kh", "9d"], "call", size=7)["preferred"] == "fold"  # but not against a big open
+
+
+def test_bb_defend_only_judges_a_big_blind_facing_one_plain_open(exploits):
+    exploits("bb_defend")
+    assert _v7(4, ["9h", "4d"], [_open(3, 5), _hero(4, "call", None, 8, 5)])["rule"] != "bb_defend"  # not the big blind
+    assert _v7(2, ["9h", "4d"], [_open(5, 5), _limp(0, 8), _hero(2, "call", None, 10, 3)])["rule"] != "bb_defend"  # a caller
+    assert _v7(2, ["9h", "4d"], [_open(5, 5), _act(0, "raise", 20, 8, 5, -20, 180), _hero(2, "call", None, 28, 18)])["rule"] != "bb_defend"
+    assert _v7(2, ["9h", "4d"], [_act(5, "raise", 200, 3, 2, -200, 0), _hero(2, "call", None, 203, 198)])["rule"] != "bb_defend"
+
+
+def test_bb_defend_leaves_value_hands_to_three_bet(exploits):
+    exploits("bb_defend", "three_bet")
+    v = _bb_defend(["Ah", "Kd"], "fold", opener=0)
+    assert v["rule"] == "three_bet" and v["preferred"] == "raise"
+
+
+def _3bet_seq(hero, cards, action, three_bettor, amount3=18, open_amount=5, hero_amount=None, allin=False):
+    """Hero opens to `open_amount`, `three_bettor` re-raises to `amount3`, hero acts."""
+    after_open = 200 - open_amount
+    to_call = amount3 - open_amount
+    three = _act(three_bettor, "raise", amount3, 3 + open_amount, open_amount, -amount3,
+                 0 if allin else 200 - amount3)
+    pot = 3 + open_amount + amount3
+    change = 0 if action == "fold" else -(hero_amount - open_amount if action == "raise" else to_call)
+    hero_act = _act(hero, action, hero_amount, pot, to_call, change, after_open + change)
+    return _v7(hero, cards, [_open(hero, open_amount), three, hero_act])
+
+
+def test_vs_3bet_continues_with_the_top_of_the_range_in_position_with_a_pair(exploits):
+    exploits("vs_3bet")
+    for cards in (["Qh", "Qd"], ["Ah", "Ks"], ["Ah", "Kd"]):
+        v = _3bet_seq(0, cards, "fold", 1)
+        assert (v["rule"], v["preferred"], v["agree"]) == ("vs_3bet", "call", False), cards
+    for action, amount in (("fold", None), ("call", None)):
+        v = _3bet_seq(0, ["Ah", "Ad"], action, 1, hero_amount=amount)
+        assert (v["rule"], v["preferred"], v["target_amount"]) == ("vs_3bet", "raise", 41), action  # 2.3x the 3-bet
+    big = _3bet_seq(0, ["Kh", "Kd"], "fold", 1, amount3=40)  # 35 to call: too big to 4-bet, still a continue
+    assert big["rule"] == "vs_3bet" and big["preferred"] == "call"
+    for cards in (["Jh", "Jd"], ["Th", "Td"], ["Ah", "Qh"]):  # in position (button vs a blind 3-bet): call
+        v = _3bet_seq(0, cards, "fold", 1)
+        assert (v["rule"], v["preferred"]) == ("vs_3bet", "call"), cards
+
+
+def test_vs_3bet_leaves_the_rest_to_the_equity_rule_and_unclear_spots_alone(exploits):
+    exploits("vs_3bet")
+    for cards, action, amount in ((["Ah", "Jd"], "call", None), (["Kh", "Qs"], "call", None), (["7h", "7d"], "call", None),
+                                  (["9h", "9d"], "call", None), (["Ah", "Qd"], "call", None), (["Ah", "5h"], "raise", 40)):
+        assert _3bet_seq(0, cards, action, 1, hero_amount=amount)["rule"] != "vs_3bet", (cards, action)
+    assert _3bet_seq(0, ["Ah", "Jd"], "fold", 1)["rule"] != "vs_3bet"  # folding is never corrected
+    oop = _3bet_seq(5, ["Jh", "Jd"], "call", 0)  # cutoff open, button 3-bet: out of position, unclear
+    assert oop["rule"] != "vs_3bet"
+    assert _3bet_seq(0, ["Ah", "Jd"], "call", 1, allin=True, amount3=200)["rule"] != "vs_3bet"  # a jam
+    assert _3bet_seq(0, ["Ah", "Jd"], "call", 1, amount3=60)["rule"] != "vs_3bet"  # 55 to call, over 20% of the stack
+    cold = _v7(0, ["Ah", "Jd"], [_open(3, 5), _hero(0, "call", None, 8, 5)])  # we did not open
+    assert cold["rule"] != "vs_3bet"
+
+
+def test_vs_3bet_abstains_after_a_cold_call_between_the_3bet_and_us(exploits):
+    exploits("vs_3bet")
+    three = _act(1, "raise", 18, 8, 5, -18, 182)
+    squeeze_call = _act(2, "call", None, 26, 18, -18, 182)
+    hero = _act(0, "fold", None, 44, 13, 0, 195)
+    v = _v7(0, ["Qh", "Qd"], [_open(0, 5), three, squeeze_call, hero])
+    assert v["rule"] != "vs_3bet"
+
+
+# ---- field_call: equity against the empirical field range; OFF unless named ----
+def _synthetic_table(situation, counts, n=200):
+    return {"meta": {}, situation: {"any": {"all": {"n": n, "counts": counts}}}}
+
+
+@pytest.fixture
+def field(monkeypatch, exploits):
+    def setup(situation, counts):
+        exploits("field_call")
+        _t._FIELD_EQ.clear()
+        monkeypatch.setattr(_t, "_field_table", lambda: _synthetic_table(situation, counts))
+    yield setup
+    _t._FIELD_EQ.clear()
+
+
+def test_field_call_is_off_by_default(monkeypatch):
+    monkeypatch.setattr(_t, "_field_table", lambda: _synthetic_table("3bet", {"AA": 200}))
+    assert _3bet_seq(0, ["7h", "7d"], "call", 1)["rule"] != "field_call"
+
+
+def test_field_call_folds_a_call_that_is_far_behind_the_range(field):
+    field("3bet", {"AA": 200})
+    v = _3bet_seq(0, ["7h", "7d"], "call", 1)  # 13 to call into 26: needs 33%, 77 has about 19% against aces
+    assert (v["rule"], v["preferred"], v["agree"], v["situation"]) == ("field_call", "fold", False, "3bet")
+    assert v["equity"] < v["required"] - 0.04
+    v = _3bet_seq(0, ["9h", "9d"], "raise", 1, hero_amount=40)
+    assert (v["rule"], v["preferred"]) == ("field_call", "fold")
+
+
+def test_field_call_calls_when_the_range_is_weak_and_the_price_is_fine(field):
+    field("3bet", {"72o": 200})
+    v = _3bet_seq(0, ["9h", "9d"], "fold", 1)
+    assert (v["rule"], v["preferred"], v["agree"]) == ("field_call", "call", False)
+    assert v["equity"] > v["required"] + 0.06
+    assert _3bet_seq(0, ["9h", "9d"], "call", 1)["rule"] != "field_call"  # a call that is fine stays alone
+
+
+def test_field_call_leaves_the_top_hands_to_vs_3bet(field):
+    field("3bet", {"72o": 200})
+    _t.EXPLOITS.add("vs_3bet")
+    v = _3bet_seq(0, ["Ah", "Ad"], "fold", 1)
+    assert v["rule"] == "vs_3bet" and v["preferred"] == "raise"
+
+
+def test_field_call_big_price_fold_needs_more_equity(field, monkeypatch):
+    field("jam", {"72o": 200})
+    # facing a jam for 190 on a 200 stack: fold to call only when equity > required + 0.10
+    raise_ = _act(3, "raise", 200, 3, 2, -200, 0)
+    hero = _act(0, "fold", None, 203, 200, 0, 200)
+    v = _v7(0, ["Ah", "Kd"], [raise_, hero])
+    assert v["rule"] == "field_call" and v["preferred"] == "call"
+    field("jam", {"AA": 100, "KK": 100})
+    v = _v7(0, ["Ah", "5d"], [_act(3, "raise", 200, 3, 2, -200, 0), _act(0, "fold", None, 203, 200, 0, 200)])
+    assert v["rule"] != "field_call"  # folding the worse hand is right
+
+
+def test_field_call_abstains_multiway_and_when_the_table_is_missing(field, monkeypatch):
+    field("3bet", {"AA": 200})
+    three = _act(1, "raise", 18, 8, 5, -18, 182)
+    cold = _act(2, "call", None, 26, 18, -18, 182)
+    v = _v7(0, ["7h", "7d"], [_open(0, 5), three, cold, _act(0, "call", None, 44, 13, -13, 182)])
+    assert v["rule"] != "field_call"
+    monkeypatch.setattr(_t, "_field_table", lambda: None)
+    assert _3bet_seq(0, ["7h", "7d"], "call", 1)["rule"] != "field_call"
+
+
+def test_field_call_facing_a_single_open_uses_the_openers_position_and_size(field):
+    field("open", {"AA": 200})
+    # UTG opens to 5; we on the button call with 72o: needs 5/? ... equity far below the price
+    v = _v7(0, ["7h", "2d"], [_open(3, 5), _hero(0, "call", None, 8, 5)])
+    assert (v["rule"], v["preferred"], v["situation"]) == ("field_call", "fold", "open")
+
+
+def test_v7_field_call_text_has_no_stat_words():
+    from poker.sft.make_records import V7_EXPLOITS, V7_TEXTS
+    assert "field_call" in V7_EXPLOITS and "field_call" in V7_TEXTS
+    for pref in ("fold", "call"):
+        text = V7_TEXTS["field_call"]({"preferred": pref, "equity": 0.31, "required": 0.4, "situation": "3bet"}, "77")
+        assert text and not any(w in text.lower() for w in ("percent", "%", "data", "field", "sample", "team"))
+
+
+# ---- postflop_sizing ----
+DRY_BOARD = ("Ks", "9d", "4h", "2c", "3d")
+WET_BOARD = ("9h", "8h", "6c", "2d", "3s")
+
+
+def _sized(cards, amount, street="flop", board=DRY_BOARD, pot=100, action="bet"):
+    acts = [_pa(1, street, action, amount, pot, 0, -amount, 200 - amount)]
+    return _judge1(_xdb([_phand(1, {0: ["5h", "6h"], 1: cards}, acts, board=board)]), 1)
+
+
+def test_postflop_sizing_is_off_by_default():
+    assert _sized(["Kh", "7d"], 120)["rule"] != "postflop_sizing"
+
+
+def test_postflop_sizing_trims_overbets_without_a_monster(exploits):
+    exploits("postflop_sizing")
+    v = _sized(["Kh", "7d"], 120)  # 1.2x pot with top pair on a dry board
+    assert (v["rule"], v["preferred"], v["agree"], v["target_frac"], v["target_amount"]) == ("postflop_sizing", "bet", False, 0.33, 50)
+    assert agrees(v, "bet", 33) and not agrees(v, "bet", 120) and not agrees(v, "check")
+    wet = _sized(["Jh", "3h"], 130, board=WET_BOARD)
+    assert (wet["rule"], wet["target_frac"], wet["target_amount"], wet["min_amount"]) == ("postflop_sizing", 0.7, 75, 50)
+    assert agrees(wet, "bet", 70) and not agrees(wet, "bet", 30) and not agrees(wet, "bet", 130)
+    river = _sized(["Kh", "7d"], 120, street="river")
+    assert river["rule"] == "postflop_sizing" and river["target_frac"] == 0.6
+    assert _sized(["Kh", "Kd"], 120)["rule"] != "postflop_sizing"  # a set may bet big
+    assert _sized(["Kh", "7d"], 110)["rule"] == "postflop_sizing"  # 1.1x is the edge: the target still applies on a dry board
+
+
+def test_postflop_sizing_fixes_clear_mis_sizes_by_texture(exploits):
+    exploits("postflop_sizing")
+    assert _sized(["Kh", "7d"], 75)["rule"] == "postflop_sizing"  # 75% pot on a dry board
+    assert _sized(["Kh", "7d"], 50)["rule"] != "postflop_sizing"
+    assert _sized(["Kh", "7d"], 33)["rule"] != "postflop_sizing"
+    assert _sized(["Jh", "3h"], 25, board=WET_BOARD)["rule"] == "postflop_sizing"  # tiny bet on a wet board
+    assert _sized(["Jh", "3h"], 66, board=WET_BOARD)["rule"] != "postflop_sizing"
+    assert _sized(["Jh", "3h"], 150, board=WET_BOARD)["rule"] == "postflop_sizing"  # 1.5x pot, not all-in
+    assert _sized(["Kh", "7d"], 200, pot=100)["rule"] != "postflop_sizing"  # all-in is left alone
+
+
+def test_postflop_sizing_checks_weak_hands_that_bet(exploits):
+    exploits("postflop_sizing")
+    for street in ("flop", "turn"):
+        v = _sized(["Jh", "7d"], 55, street=street)  # more than half the pot
+        assert (v["rule"], v["preferred"], v["agree"]) == ("postflop_sizing", "check", False), street
+    assert _sized(["Ah", "Qd"], 55)["rule"] != "postflop_sizing"  # ace-high keeps equity
+    assert _sized(["Jh", "7h"], 55, board=("9h", "8h", "2c", "3s", "4d"))["rule"] != "postflop_sizing"  # flush draw
+    assert _sized(["Jh", "7d"], 33, street="river")["rule"] != "postflop_sizing"  # river bluffs are not judged
+    assert _sized(["Kh", "7d"], 33)["rule"] != "postflop_sizing"  # a pair is a normal bet
+
+
+def test_postflop_sizing_lets_heads_up_small_stabs_alone(exploits):
+    exploits("postflop_sizing")
+    assert _sized(["Jh", "7d"], 33)["rule"] != "postflop_sizing"
+    assert _sized(["Jh", "7d"], 50)["rule"] != "postflop_sizing"
+
+
+def test_postflop_sizing_checks_weak_hands_in_multiway_pots(exploits):
+    exploits("postflop_sizing")
+    acts = [_pa(1, "flop", "bet", 33, 100, 0, -33, 167)]
+    hand = _phand(1, {0: ["5h", "6h"], 1: ["Jh", "7d"], 2: ["2s", "2h"]}, acts, seats=(0, 1, 2))
+    v = _judge1(_xdb([hand], nseats=3), 1)
+    assert (v["rule"], v["preferred"]) == ("postflop_sizing", "check")
+
+
+def test_postflop_sizing_exempts_gutshots(exploits):
+    exploits("postflop_sizing")
+    acts = [_pa(1, "flop", "bet", 55, 100, 0, -55, 145)]
+    board = ("9h", "8c", "2d", "3s", "4d")
+    hand = _phand(1, {0: ["5h", "6h"], 1: ["Jh", "7d"]}, acts, board=board)  # 7-8-9-J: a gutshot
+    assert _judge1(_xdb([hand]), 1)["rule"] != "postflop_sizing"
+    hand = _phand(1, {0: ["5h", "6h"], 1: ["Jh", "5d"]}, acts, board=("9h", "Kc", "2d", "3s", "4d"))  # no draw
+    assert _judge1(_xdb([hand]), 1)["preferred"] == "check"
+
+
+def test_board_is_wet_needs_three_ranks_inside_a_four_rank_window():
+    assert not _t._board_is_wet(["9h", "7c", "5d"])  # 9-7-5 spans five ranks
+    assert _t._board_is_wet(["9h", "8c", "6d"])
+    assert _t._board_is_wet(["9h", "8c", "7d"])
+    assert not _t._board_is_wet(["Ah", "9c", "4d"])
+    assert _t._board_is_wet(["Ah", "3c", "2d"])  # ace plays low
+    assert _t._board_is_wet(["9h", "8h", "2d"])  # two-tone
+
+
+def test_postflop_sizing_skips_wet_boards_when_the_minimum_bet_exceeds_the_cap(exploits):
+    exploits("postflop_sizing")
+    acts = [_pa(1, "flop", "bet", 30, 100, 0, -30, 10)]  # only 40 behind: the 50 minimum on a wet board is out of reach
+    hand = _phand(1, {0: ["5h", "6h"], 1: ["Jh", "3h"]}, acts, board=("9h", "8h", "6c", "2d", "3s"))
+    assert _judge1(_xdb([hand]), 1)["rule"] != "postflop_sizing"
+
+
+def test_v7_sizing_text_names_the_size_from_the_target():
+    from poker.sft.make_records import V7_TEXTS
+    for frac, word in (("0.33", "a third"), ("0.5", "half"), ("0.7", "two thirds"), ("0.75", "three quarters")):
+        text = V7_TEXTS["postflop_sizing"]({"preferred": "bet", "target_frac": float(frac), "texture": "dry", "reason": "mis_size"}, "KQ")
+        assert word in text and "%" not in text, (frac, text)
+
+
+def test_postflop_sizing_ignores_raises(exploits):
+    exploits("postflop_sizing")
+    assert _sized(["Kh", "7d"], 120, action="raise")["rule"] != "postflop_sizing"
+
+
+def test_field_call_does_not_defend_offsuit_junk(field):
+    field("open", {"72o": 200})
+    # BTN opens to 5, SB folds, BB folds J5o: raw equity beats the price, but offsuit junk plays badly out of position
+    acts = [_open(0, 5), _act(1, "fold", None, 8, 4, 0, 199), _hero(2, "fold", None, 8, 3)]
+    assert _v7(2, ["Jh", "5d"], acts)["rule"] != "field_call"
+    v = _v7(2, ["8h", "7h"], acts)
+    assert (v["rule"], v["preferred"]) == ("field_call", "call")
+
+
+def test_field_call_discounts_equity_out_of_position(field, monkeypatch):
+    field("open", {"72o": 200})
+    monkeypatch.setattr(_t, "_field_equity", lambda *a: 0.45)
+    # SB facing a BTN open to 5: needs 4/12; 0.45 raw clears the margin, 0.45 realized out of position does not
+    sb = [_open(0, 5), _hero(1, "fold", None, 8, 4)]
+    assert _v7(1, ["9h", "8h"], sb)["rule"] != "field_call"
+    monkeypatch.setattr(_t, "_field_equity", lambda *a: 0.55)
+    # BTN facing a UTG open to 5: needs 5/13; in position 0.55 still clears it
+    btn = [_open(3, 5), _hero(0, "fold", None, 8, 5)]
+    v = _v7(0, ["9h", "8h"], btn)
+    assert (v["rule"], v["preferred"]) == ("field_call", "call")

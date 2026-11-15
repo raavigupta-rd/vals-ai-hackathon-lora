@@ -304,23 +304,17 @@
       "steps": 12,
       "checkpoint_every": 6,
       "base_checkpoint": "ckpt_46cfa1869701",
-      "status": "running",
-      "source": "teacher v3, field-level ranges; validated own-words corrections only (185, 156 plain+hinted rerolls); sft-c1-s10 records x2, base x1"
+      "status": "succeeded",
+      "source": "teacher v3, field-level ranges; validated own-words corrections only (185, 156 plain+hinted rerolls); sft-c1-s10 records x2, base x1",
+      "checkpoints": {
+        "step6": "ckpt_2276e578b14f",
+        "step12": "ckpt_54a267c87fcd"
+      }
     }
   ],
   "training_slot": {
-    "parallel": true,
-    "slots": [
-      {
-        "train_id": "train_5fe05c5914f4",
-        "kind": "sft_cycle2a"
-      },
-      {
-        "train_id": "train_7917a42dc792",
-        "kind": "sft_cycle2b"
-      }
-    ],
-    "rule": "Two 4-GPU SFT runs may run together while only base and sft-c1-s10 are deployed (2+4+4=10)."
+    "slots": [],
+    "rule": "Both slots free since 18:29 PST; 4 round-1 checkpoints deploying for the gate."
   },
   "publication": {
     "combined_implementation": "593a185",

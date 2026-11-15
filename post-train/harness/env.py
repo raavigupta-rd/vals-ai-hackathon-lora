@@ -187,15 +187,24 @@ class ValsMessageEnv(AgentToolMessageEnv):
         return MessageStepResult(reward=reward, episode_done=True, next_messages=self.history, metrics=metrics, logs={})
 
 
-def initial_messages(problem: dict, renderer: Renderer, tools: CPTools) -> list[Message]:
+def hint_text(reference_code: str, level: float) -> str:
+    """Truncation hint (Hinted Scaling Laws, arXiv 2611.02270): the first `level` fraction of a
+    reference solution's lines. Eval-only: used to compare checkpoints with less noise."""
+    lines = reference_code.rstrip().splitlines()
+    k = max(1, int(round(len(lines) * level)))
+    return ("\n\nHint: here are the first " + f"{k} of {len(lines)}" + " lines of a correct reference solution.\n"
+            "```cpp\n" + "\n".join(lines[:k]) + "\n```")
+
+
+def initial_messages(problem: dict, renderer: Renderer, tools: CPTools, hint: str = "") -> list[Message]:
     specs = [tools.run_cpp.to_spec(), tools.submit.to_spec()]
     prefix = renderer.create_conversation_prefix_with_tools(tools=specs, system_prompt=SYSTEM_PROMPT)
-    return prefix + [{"role": "user", "content": problem["statement"]}]
+    return prefix + [{"role": "user", "content": problem["statement"] + hint}]
 
 
 def build_env(problem: dict, renderer: Renderer, *, max_turns: int = MAX_TURNS,
               max_trajectory_tokens: int = 60_000, max_generation_tokens: int = 16_384,
-              score_mode: str = "subtask") -> tuple[EnvFromMessageEnv, ValsMessageEnv]:
+              score_mode: str = "subtask", hint: str = "") -> tuple[EnvFromMessageEnv, ValsMessageEnv]:
     tools = CPTools(problem)
     holder: dict = {}
 
@@ -207,7 +216,7 @@ def build_env(problem: dict, renderer: Renderer, *, max_turns: int = MAX_TURNS,
 
     msg_env = ValsMessageEnv(
         tools=[tools.run_cpp, tools.submit],
-        initial_messages=initial_messages(problem, renderer, tools),
+        initial_messages=initial_messages(problem, renderer, tools, hint),
         max_turns=max_turns,
         reward_fn=reward_fn,
         tool_execution="sequential",

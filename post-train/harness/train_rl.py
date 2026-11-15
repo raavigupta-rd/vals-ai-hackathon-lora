@@ -37,15 +37,17 @@ class CLIConfig:
     problems_path: str = str(ROOT / "data" / "synth_ioi" / "problems.jsonl")
     eval_problems_path: str | None = None
     exclude_ids: str = ""
+    solutions_path: str | None = str(ROOT / "data" / "synth_ioi" / "solutions.jsonl")  # for hinted eval
+    eval_group_size: int = 4
 
     model_name: str = BASE_MODEL
     load_checkpoint_path: str | None = None  # e.g. an SFT checkpoint (tinker://.../weights/...)
-    renderer_name: str | None = None
+    renderer_name: str | None = "qwen3_5"  # thinking ON
     lora_rank: int = 32
 
     group_size: int = 4
     groups_per_batch: int = 8
-    epochs: int = 1
+    epochs: int = 10
     learning_rate: float = 2e-5
     temperature: float = 1.0
     kl_penalty_coef: float = 0.0
@@ -60,7 +62,7 @@ class CLIConfig:
     remove_constant_reward_groups: bool = True
 
     save_every: int = 5
-    eval_every: int = 0
+    eval_every: int = 2
     log_path: str | None = None
     wandb_project: str | None = None
     behavior_if_log_dir_exists: cli_utils.LogdirBehavior = "ask"
@@ -80,6 +82,7 @@ async def cli_main(c: CLIConfig) -> None:
         renderer_name=renderer_name, epochs=c.epochs, seed=c.seed, max_turns=c.max_turns,
         max_trajectory_tokens=c.max_trajectory_tokens, max_generation_tokens=c.max_tokens,
         score_mode=c.score_mode, turn_bonus=c.turn_bonus, turn_bonus_horizon=c.turn_bonus_horizon,
+        solutions_path=c.solutions_path, eval_group_size=c.eval_group_size,
     )
     config = Config(
         learning_rate=c.learning_rate, dataset_builder=dataset_builder, model_name=c.model_name,

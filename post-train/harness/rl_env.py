@@ -27,7 +27,7 @@ from tinker_cookbook.rl.types import Env, EnvGroupBuilder, Metrics, RLDataset, R
 from tinker_cookbook.tokenizer_utils import get_tokenizer
 
 from harness import sandbox
-from harness.env import build_env, grade
+from harness.env import build_env, grade, hint_text
 from harness.problems import load
 
 
@@ -47,6 +47,8 @@ class CPEnvGroupBuilder(EnvGroupBuilder):
     score_mode: str = "subtask"
     turn_bonus: float = 0.04
     turn_bonus_horizon: int = 10
+    hint: str = ""  # eval-only truncation hint appended to the statement
+    tag: str = "train"
     _msg_envs: list = field(default_factory=list, repr=False)
 
     async def make_envs(self) -> Sequence[Env]:
@@ -57,7 +59,7 @@ class CPEnvGroupBuilder(EnvGroupBuilder):
             env, msg_env = build_env(
                 self.problem, renderer, max_turns=self.max_turns,
                 max_trajectory_tokens=self.max_trajectory_tokens,
-                max_generation_tokens=self.max_generation_tokens,
+                max_generation_tokens=self.max_generation_tokens, hint=self.hint,
             )
             msg_env.reward_fn = _no_reward  # graded in compute_group_rewards instead
             envs.append(env)
@@ -91,7 +93,7 @@ class CPEnvGroupBuilder(EnvGroupBuilder):
         return out
 
     def logging_tags(self) -> list[str]:
-        return ["cp", f"r{(self.problem.get('rating', 0) // 400) * 400}"]
+        return [self.tag]
 
 
 class CPDataset(RLDataset):
@@ -123,14 +125,19 @@ class CPDatasetBuilder(RLDatasetBuilder):
     turn_bonus: float = 0.04
     turn_bonus_horizon: int = 10
     exclude_ids: str = ""  # comma-separated problem ids to skip (e.g. eval overlap)
+    eval_group_size: int = 4  # unhinted rollouts per held-out problem (tag "heldout")
+    solutions_path: str | None = None  # if set, add 1 hinted rollout per held-out problem (tag "hinted")
+    hint_min: float = 0.2
+    hint_max: float = 0.8
 
-    def _builders(self, problems: list[dict], group_size: int, renderer_name: str) -> list[CPEnvGroupBuilder]:
-        return [CPEnvGroupBuilder(
+    def _builders(self, problems: list[dict], group_size: int, renderer_name: str, tag: str = "train",
+                  hints: list[str] | None = None) -> list[CPEnvGroupBuilder]:
+        return [CPEnvGroupBuilder(tag=tag, hint=(hints[i] if hints else ""),
             problem=p, model_name=self.model_name, renderer_name=renderer_name, group_size=group_size,
             max_turns=self.max_turns, max_trajectory_tokens=self.max_trajectory_tokens,
             max_generation_tokens=self.max_generation_tokens, score_mode=self.score_mode,
             turn_bonus=self.turn_bonus, turn_bonus_horizon=self.turn_bonus_horizon,
-        ) for p in problems]
+        ) for i, p in enumerate(problems)]
 
     async def __call__(self) -> tuple[RLDataset, RLDataset | None]:
         sandbox.ensure_container()
@@ -152,7 +159,15 @@ class CPDatasetBuilder(RLDatasetBuilder):
         test = None
         if self.eval_problems_path:
             ev = load(self.eval_problems_path)
-            test = CPDataset(self._builders(ev, 1, renderer_name), len(ev))
+            builders = self._builders(ev, self.eval_group_size, renderer_name, tag="heldout")
+            if self.solutions_path:
+                sols = {s["id"]: s for s in map(json.loads, open(self.solutions_path))}
+                hv = [p for p in ev if p["id"] in sols]
+                n = len(hv)
+                levels = [self.hint_min + (self.hint_max - self.hint_min) * i / max(1, n - 1) for i in range(n)]
+                hints = [hint_text(sols[p["id"]]["fast_cpp"], h) for p, h in zip(hv, levels)]
+                builders += self._builders(hv, 1, renderer_name, tag="hinted", hints=hints)
+            test = CPDataset(builders, len(builders))
         print(json.dumps({"train_problems": len(problems), "epochs": self.epochs, "steps": len(train),
                           "rollouts_per_step": self.batch_size * self.group_size}))
         return train, test

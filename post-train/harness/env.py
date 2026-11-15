@@ -299,7 +299,7 @@ def build_env(problem: dict, renderer: Renderer, *, max_turns: int = MAX_TURNS,
         reward_fn=reward_fn,
         tool_execution="sequential",
         # real harness: retry prompt after a malformed call; the 3rd consecutive one ends the task
-        parse_error_policy=ParseErrorPolicy(max_consecutive=2, retry_message_template=MALFORMED_TOOL_CALL_PROMPT),
+        parse_error_policy=ParseErrorPolicy(max_consecutive=2, retry_message_template=MALFORMED_TOOL_CALL_PROMPT + "\n\n{details}"),
         cp_tools=tools,
         result=holder,
         instructed=bool(system_extra),

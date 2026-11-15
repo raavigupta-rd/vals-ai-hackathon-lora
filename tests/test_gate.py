@@ -194,3 +194,14 @@ def test_aggregate_reports_the_call_rate_on_all_in_spots():
             _row("c", "judged", "fold", "fold", rule="allin_call"), _row("d", "judged", "fold", "fold", rule="unopened")]
     out = gate.aggregate(rows)
     assert out["allin_call_rate"] == 1 / 3
+
+
+def test_cleanup_reply_scoring():
+    ok = {"choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [
+        {"function": {"name": "update_scratchpad", "arguments": '{"contents": "notes"}'}}]}}]}
+    wrong = {"choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [
+        {"function": {"name": "submit_action", "arguments": '{"action": "fold"}'}}]}}]}
+    long = {"choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [
+        {"function": {"name": "update_scratchpad", "arguments": '{"contents": "' + "x" * 5001 + '"}'}}]}}]}
+    assert gate.cleanup_ok(ok) and not gate.cleanup_ok(wrong) and not gate.cleanup_ok(long)
+    assert not gate.cleanup_ok({"error": "http"})

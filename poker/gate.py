@@ -131,6 +131,45 @@ def parse_reply(prompt: list[dict], response: dict) -> dict:
             "tokens": usage.get("completion_tokens"), "action": action if action in ACTIONS else None, "error": problem}
 
 
+def cleanup_ok(response: dict) -> bool:
+    """A valid after-hand reply: exactly one update_scratchpad call with string contents of at most 5,000 chars."""
+    if "choices" not in response:
+        return False
+    choice = response["choices"][0]
+    calls = (choice.get("message") or {}).get("tool_calls") or []
+    if choice.get("finish_reason") == "length" or len(calls) != 1 or calls[0]["function"]["name"] != "update_scratchpad":
+        return False
+    try:
+        args = json.loads(calls[0]["function"]["arguments"])
+    except (TypeError, ValueError):
+        return False
+    return isinstance(args, dict) and isinstance(args.get("contents"), str) and len(args["contents"]) <= 5000
+
+
+def run_cleanup_check(joined: Path, deployments: list[str], client, tools: list[dict], *, n: int, seed: int,
+                      source_deployment: str = "infer_d3d2b6b92171", concurrency: int = 8) -> dict:
+    """Replay n real cleanup prompts (from base's arena games) on each deployment; share answered correctly."""
+    pool = []
+    for line in joined.open(encoding="utf-8"):
+        r = json.loads(line)
+        if r.get("source") == "arena" and r.get("kind") == "cleanup" and r.get("deployment") == source_deployment:
+            pool.append(r)
+    pool.sort(key=lambda r: r["span_id"])
+    picks = random.Random(seed).sample(pool, min(n, len(pool)))
+    jobs = [(d, r) for d in deployments for r in picks]
+
+    def one(job):
+        d, r = job
+        return d, cleanup_ok(client.complete(d, chat_messages(r["messages"]), tools))
+
+    out = {d: [0, 0] for d in deployments}
+    with ThreadPoolExecutor(max_workers=concurrency) as pool_:
+        for d, ok in pool_.map(one, jobs):
+            out[d][0] += ok
+            out[d][1] += 1
+    return {d: {"ok": k, "n": t, "rate": k / t if t else None} for d, (k, t) in out.items()}
+
+
 def original_action(record: dict) -> str | None:
     calls = [c for c in record.get("tool_calls") or [] if c.get("name") == "submit_action"]
     if len(calls) != 1:
@@ -352,6 +391,7 @@ def main() -> None:
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument("--n-cleanup", type=int, default=30, help="cleanup prompts replayed per deployment (0 skips)")
     args = parser.parse_args()
     client = HttpClient(load_api_key())
     started = time.monotonic()
@@ -372,8 +412,19 @@ def main() -> None:
         diff = paired_difference(result["spots"][reference], result["spots"][dep], seed=args.seed)
         result["comparisons"][dep] = {"vs": reference, "diff": diff,
                                       "verdict": verdict(result["summary"][reference], result["summary"][dep], diff)}
+    if args.n_cleanup:
+        result["cleanup"] = run_cleanup_check(args.joined, args.deployment, client, chat_tools(), n=args.n_cleanup,
+                                              seed=args.seed, concurrency=args.concurrency)
+        ref_rate = result["cleanup"][args.deployment[0]]["rate"] or 0
+        for dep, c in result["comparisons"].items():
+            rate = result["cleanup"][dep]["rate"] or 0
+            if rate < max(0.9, ref_rate - 0.05):
+                c["verdict"]["pass"] = False
+                c["verdict"]["reasons"].append(f"cleanup turns broken: {rate:.0%} valid update_scratchpad")
     out.write_text(json.dumps(meta | result, indent=1))
     print(format_table(result["summary"]))
+    for dep, c in (result.get("cleanup") or {}).items():
+        print(f"{dep}: cleanup turns valid {c['ok']}/{c['n']}")
     for dep, s in result["summary"].items():
         lo, hi = bootstrap_ci(list(_spot_agreement(result["spots"][dep]).values()), seed=args.seed)
         m = s["mixing"]

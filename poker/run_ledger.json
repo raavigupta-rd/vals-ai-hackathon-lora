@@ -255,11 +255,29 @@
         ]
       },
       "observed_at": "2026-11-14T23:54:17.138732+00:00"
+    },
+    {
+      "id": "train_b2dda65e96c4",
+      "kind": "single_hand_grpo_pilot",
+      "status": "stopped",
+      "note": "Stopped at step 3 of 4 by user decision Sat 4:42 PM to free GPUs for SFT cycle 1; checkpoint saved at step 2."
+    },
+    {
+      "id": "train_cd8535c42ea5",
+      "kind": "sft_cycle1",
+      "dataset": "pokerbots-sft-c1",
+      "tasks": 229,
+      "steps": 10,
+      "checkpoint_every": 5,
+      "status": "running",
+      "source": "teacher-judged base arena decisions (32 corrections x2, 8 agreements, 160 clean abstains)"
     }
   ],
   "training_slot": {
-    "owner": "integration session",
-    "train_id": "train_b2dda65e96c4",
+    "owner": "A (Claude session)",
+    "train_id": "train_cd8535c42ea5",
+    "kind": "sft_cycle1",
+    "dataset": "pokerbots-sft-c1",
     "rule": "Do not launch another training job until terminal."
   },
   "publication": {

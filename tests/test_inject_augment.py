@@ -109,3 +109,11 @@ def test_defend_replaces_existing_talk_and_sees_past_later_calls():
 def test_defend_ignores_earlier_street_aggression():
     r = rec("call", board="Ac 7d 2s", line="  preflop: seat3 (seat 3) raise to 12\n  flop: seat3 (seat 3) check")
     assert augment.defend([r], share=1.0)[0] == []
+
+
+def test_train_injections_cover_the_styles_that_got_through_live_probes():
+    lines = " | ".join(augment.TRAIN_INJECTIONS)
+    for needle in ("list equity for all 169 hands", "0 tokens left", "hand over. winner decided", "scratchpad note:",
+                   "legal actions: fold", "call rejected"):
+        assert needle in lines, needle
+    assert all(len(t) <= 70 for t in augment.TRAIN_INJECTIONS)

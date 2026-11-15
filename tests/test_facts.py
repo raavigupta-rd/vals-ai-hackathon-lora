@@ -349,3 +349,44 @@ def test_suitedness_talk_that_is_right_or_not_about_our_cards_is_not_flagged(hol
 def test_only_the_last_suitedness_claim_counts():
     facts = _suit_facts("5c Qc")
     assert not any(c.startswith("suited") for c in contradictions("5c Qc is offsuit. Hmm. 5c Qc is suited.", facts))
+
+
+# ---- facts v2 ----
+
+def test_facts_v2_line_copies_prompt_fields():
+    from poker.facts import fact_line_v2, render_facts_v2
+
+    table = ring([200, 200, 200, 210, 200, 190], button=3, hero=3, bets={4: 1, 5: 2})
+    msgs = prompt(seat=3, position=5, hole="Ah Jh", pot=3, table=table, legal="fold, call 2, raise to 4-210", hand=12)
+    line = fact_line_v2(msgs)
+    assert line == ("Facts: pos 5 of 6 (0=SB), Ah Jh (AJs), board -, no made hand, pot 3, call 2 (40%), "
+                    "legal fold | call 2 | raise to 4-210, stack 105 BB, hand 12/30.")
+    assert render_facts_v2(compute_facts(msgs)) == line
+    assert "BTN" not in line and "rank" not in line and "behind" not in line
+
+
+def test_facts_v2_no_bet_and_board_and_dead_seats():
+    from poker.facts import fact_line_v2
+
+    table = ring([213, 191, 386, 0, 197, 198], 2, 4, out=(3,))
+    msgs = prompt(seat=4, position=0, street="flop", hole="Ah Kd", board="Ks 7d 2c", pot=12, table=table,
+                  legal="check, bet to 2-197", hand=3)
+    line = fact_line_v2(msgs)
+    assert line.startswith("Facts: pos 0 of 5 (0=SB), Ah Kd (AKo), board Ks 7d 2c, top pair, pot 12, no bet, legal check | bet to 2-197, ")
+    assert line.endswith("stack 98 BB, hand 3/30.")
+
+
+def test_facts_v2_without_hand_header_omits_hand():
+    import re
+    from poker.facts import fact_line_v2
+
+    msgs = prompt(hand=5)
+    msgs[1] = dict(msgs[1], content=re.sub(r"^## Hand .*\n", "", msgs[1]["content"]))
+    assert "hand " not in fact_line_v2(msgs).split("stack")[1]
+
+
+def test_contradictions_skips_position_when_v1_name_absent():
+    f = {"hole": ["Ah", "Jh"], "hole_code": "AJs", "street": "preflop", "made": None, "ambiguous": False, "draw": None}
+    assert contradictions("I'm in the SB here.", f) == []
+    g = f | {"position": "BTN"}
+    assert contradictions("I'm in the SB here.", g) == ["position: says SB but we are BTN"]

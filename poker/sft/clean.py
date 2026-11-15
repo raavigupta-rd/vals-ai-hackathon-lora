@@ -14,6 +14,18 @@ one filter per problem. A record is counted under the first filter (in the order
                     content; a pasted JSON submit_action in reasoning
     confusion       3 or more "wait" / "re-read" in an action reasoning
 
+Strict target filters (clean(records, strict=True); poker.sft.make_records --clean-strict), for the c8 final model:
+
+    tool_text            "<tool_call", "<function=", "</tool_response" or '"name": "submit_action"' in reasoning or content
+    conclusion_mismatch  the last 250 chars of reasoning conclude one action ("I should fold", "I'll call", "folding is
+                         best") and the tool call is another; skipped when two different verbs are concluded
+    short_body           action reasoning without its Facts/Reads/Talk/Decision lines is under 120 chars
+    long_body            the same body is over 1800 chars
+    has_say              (only with no_say=True) the tool call has a say argument
+
+legal_target(record) -> bool is the legality guard (verb legal, bet/raise amount inside the legal range).
+add_decision_line(records) appends "Decision: <fold | check | call N | bet N | raise to N>" as the last reasoning line.
+
 add_pad_read_line(records) -> (records, stats) puts one line "Reads: ..." at the top of every action reasoning whose
 prompt has a v2 pad (below a "Facts:" line when there is one). It keeps only the pad's exploit lines that matter for this
 decision: the survive line; the steal line when we are first in from CO, BTN or SB; a seat line when that seat is still in
@@ -33,6 +45,9 @@ BAD_FOLD_REQUIRED = 0.30
 BAD_FOLD_OUTS = 8
 FILTERS = ("no_v2_pad", "pad_restart", "pad_game_over", "suitedness", "illegal", "rfi_fold", "bad_fold", "leakage",
            "confusion")
+STRICT_FILTERS = ("tool_text", "junk_text", "conclusion_mismatch", "short_body", "long_body", "has_say")
+MIN_BODY, MAX_BODY, CONCLUSION_TAIL = 120, 2600, 250
+_JUNK_TEXT = re.compile(r"[^\x00-\x7f]|</?thinking>")
 
 _HAND = re.compile(r"^## Hand (\d+) of (\d+)", re.M)
 _HAND_OVER = re.compile(r"^## Hand (\d+) is over", re.M)
@@ -164,25 +179,102 @@ def _leaks(record: dict) -> bool:
     return bool((target.get("content") or "").strip() or _LEAK_WORDS.search(reasoning) or _JSON_ACTION.search(reasoning))
 
 
-def _first_failure(record: dict) -> str | None:
+_TOOL_TEXT = re.compile(r"<tool_call|<function=|</tool_response|[\"']name[\"']\s*:\s*[\"']submit_action[\"']", re.I)
+_HEADER_LINE = re.compile(r"^(?:Facts|Reads|Talk|Decision):")
+_NOT_COND = r"(?!\s+(?:if|when|unless|to\b|against|once|only|after|but|or|and)\b)"
+_WILL = r"(?:I(?:'ll|\u2019ll| will| should| would| must| need to| have to| had better|'m going to| am going to| think I should)|let'?s|we should)"
+_CONCLUDE = {
+    "fold": [rf"\b{_WILL}\s+(?:just\s+|simply\s+)?fold\b{_NOT_COND}", rf"\bfold(?:ing)? is (?:the )?(?:best|right|correct|clear|my)\b",
+             r"\bthe (?:best|right|correct) (?:play|move|action|decision) is (?:to )?fold\b", r"(?:^|[.!?]\s+)(?:so,?\s+)?fold\.?\s*$"],
+    "call": [rf"\b{_WILL}\s+(?:just\s+|simply\s+)?call\b{_NOT_COND}", rf"\bcall(?:ing)? is (?:the )?(?:best|right|correct|clear|my)\b",
+             r"\bthe (?:best|right|correct) (?:play|move|action|decision) is (?:to )?call\b", r"(?:^|[.!?]\s+)(?:so,?\s+)?call(?: \d+)?\.?\s*$"],
+    "check": [rf"\b{_WILL}\s+(?:just\s+|simply\s+)?check\b{_NOT_COND}", r"(?:^|[.!?]\s+)(?:so,?\s+)?check\.?\s*$"],
+    "aggr": [rf"\b{_WILL}\s+(?:just\s+|simply\s+)?(?:raise|bet|jam|shove)\b{_NOT_COND}",
+             r"(?:^|[.!?]\s+)(?:so,?\s+)?(?:raise|bet) (?:to )?\d+\.?\s*$"],
+}
+_CONCLUDE = {k: [re.compile(p, re.I) for p in v] for k, v in _CONCLUDE.items()}
+_FAMILY = {"fold": "fold", "call": "call", "check": "check", "bet": "aggr", "raise": "aggr"}
+
+
+def _body(reasoning: str) -> str:
+    return "\n".join(line for line in reasoning.split("\n") if not _HEADER_LINE.match(line)).strip()
+
+
+def _conclusion_mismatch(record: dict) -> bool:
+    tail = _body(record["target"].get("reasoning") or "")[-CONCLUSION_TAIL:]
+    said = {verb for verb, patterns in _CONCLUDE.items() if any(p.search(tail) for p in patterns)}
+    action = _FAMILY.get(record["target"]["tool_call"]["arguments"].get("action"))
+    return len(said) == 1 and action is not None and action not in said
+
+
+def _strict_failure(record: dict, strict: bool, no_say: bool, before_leak: bool) -> str | None:
+    target = record["target"]
+    if before_leak:
+        text = (target.get("reasoning") or "") + "\n" + (target.get("content") or "")
+        if _TOOL_TEXT.search(text):
+            return "tool_text"
+        # non-ASCII fragments and think tags in a target teach the drift seen live (Chinese text, </thinking>)
+        return "junk_text" if _is_action(record) and _JUNK_TEXT.search(text) else None
+    if not _is_action(record):
+        return None
+    if strict:
+        body = _body(target.get("reasoning") or "")
+        if _conclusion_mismatch(record):
+            return "conclusion_mismatch"
+        if len(body) < MIN_BODY:
+            return "short_body"
+        if len(body) > MAX_BODY:
+            return "long_body"
+    if no_say and "say" in target["tool_call"]["arguments"]:
+        return "has_say"
+    return None
+
+
+def _first_failure(record: dict, strict: bool = False, no_say: bool = False) -> str | None:
     action = _is_action(record)
     if action and (name := _action_filter(record)):
         return name
     if not action and record["source"] == "pad_teacher" and (name := _pad_filter(record)):
         return name
+    if strict and (name := _strict_failure(record, strict, no_say, True)):
+        return name
     if _leaks(record):
         return "leakage"
     if action and len(_CONFUSED.findall(record["target"].get("reasoning") or "")) >= CONFUSION_LIMIT:
         return "confusion"
+    if strict or no_say:
+        return _strict_failure(record, strict, no_say, False)
     return None
 
 
-def clean(records) -> tuple[list[dict], dict]:
-    """Drop the records the filters above reject. stats: {"in", "out", "dropped_total", "dropped": {filter: {source: n}}}."""
-    kept, dropped = [], {name: {} for name in FILTERS}
+def legal_target(record: dict) -> bool:
+    """Legality guard: an action turn's tool call uses a verb the prompt's legal line allows, and a bet or raise amount is an
+    integer inside the legal range. Other turns (update_scratchpad) pass. A prompt without a legal line passes."""
+    if not _is_action(record):
+        return True
+    return _legal_ok(Prompt(record["messages"]).legal, record["target"]["tool_call"]["arguments"])
+
+
+def strip_say(records) -> tuple[list[dict], int]:
+    """Copies of the records with the say argument removed from every tool call; also the number of records changed."""
+    out, changed = [], 0
+    for record in records:
+        args = record["target"]["tool_call"]["arguments"]
+        if isinstance(args, dict) and "say" in args:
+            call = record["target"]["tool_call"] | {"arguments": {k: v for k, v in args.items() if k != "say"}}
+            record = record | {"target": record["target"] | {"tool_call": call}}
+            changed += 1
+        out.append(record)
+    return out, changed
+
+
+def clean(records, strict: bool = False, no_say: bool = False) -> tuple[list[dict], dict]:
+    """Drop the records the filters above reject. strict adds the c8 target filters; no_say adds has_say (drop any record
+    with a say argument). stats: {"in", "out", "dropped_total", "dropped": {filter: {source: n}}}."""
+    kept, dropped = [], {name: {} for name in FILTERS + STRICT_FILTERS}
     records = list(records)
     for record in records:
-        name = _first_failure(record)
+        name = _first_failure(record, strict, no_say)
         if name:
             by_source = dropped[name]
             by_source[record["source"]] = by_source.get(record["source"], 0) + 1
@@ -190,6 +282,42 @@ def clean(records) -> tuple[list[dict], dict]:
             kept.append(record)
     return kept, {"in": len(records), "out": len(kept), "dropped_total": len(records) - len(kept),
                   "dropped": {k: v for k, v in dropped.items() if v}}
+
+
+# ---- decision line ---------------------------------------------------------------------------------------------
+
+_DECISION_LINE = re.compile(r"Decision: (?:fold|check|call \d+|bet \d+|raise to \d+)")
+
+
+def decision_text(args: dict, legal: str | None) -> str | None:
+    action, amount = args.get("action"), args.get("amount")
+    if action in ("fold", "check"):
+        return action
+    if action == "call":
+        found = re.search(r"\bcall (\d+)", legal or "")
+        return f"call {found[1]}" if found else None
+    if action in ("bet", "raise") and isinstance(amount, (int, float)) and not isinstance(amount, bool) and amount == int(amount):
+        return f"{action} {int(amount)}" if action == "bet" else f"raise to {int(amount)}"
+    return None
+
+
+def add_decision_line(records) -> tuple[list[dict], dict]:
+    """Append "Decision: fold | check | call N | bet N | raise to N" as the last reasoning line of every action turn, built from
+    the tool call and the prompt's legal line. Idempotent. Turns it cannot describe are left alone and counted."""
+    out, stats = [], {"added": 0, "already": 0, "not_action": 0, "unbuildable": 0}
+    for record in records:
+        if not _is_action(record):
+            stats["not_action"] += 1
+        elif _DECISION_LINE.fullmatch((record["target"].get("reasoning") or "").rstrip().split("\n")[-1]):
+            stats["already"] += 1
+        elif (text := decision_text(record["target"]["tool_call"]["arguments"], Prompt(record["messages"]).legal)) is None:
+            stats["unbuildable"] += 1
+        else:
+            reasoning = (record["target"].get("reasoning") or "").rstrip()
+            record = record | {"target": record["target"] | {"reasoning": (reasoning + "\n" if reasoning else "") + "Decision: " + text}}
+            stats["added"] += 1
+        out.append(record)
+    return out, stats
 
 
 # ---- pad read line ----------------------------------------------------------------------------------------------
@@ -244,3 +372,29 @@ def add_pad_read_line(records) -> tuple[list[dict], dict]:
             record = record | {"target": record["target"] | {"reasoning": "\n".join(lines[:at] + [line] + lines[at:])}}
         out.append(record)
     return out, stats
+
+
+_HEADER_LINE = re.compile(r"^(Facts|Reads|Talk|Pad|Decision)\b[^\n]*:", re.I)
+
+
+def strip_model_headers(records) -> tuple[list[dict], dict]:
+    """Remove the header lines a model wrote itself (Facts / Reads / Talk / Pad at the top, Decision at the end) from
+    action reasoning, so only code-computed headers reach training. Live Facts lines are often wrong."""
+    out, n = [], 0
+    for record in records:
+        if not _is_action(record):
+            out.append(record)
+            continue
+        lines = (record["target"].get("reasoning") or "").split("\n")
+        start = 0
+        while start < len(lines) and (not lines[start].strip() or _HEADER_LINE.match(lines[start].strip())):
+            start += 1
+        end = len(lines)
+        while end > start and (not lines[end - 1].strip() or lines[end - 1].strip().lower().startswith("decision:")):
+            end -= 1
+        text = "\n".join(lines[start:end])
+        if text != record["target"].get("reasoning"):
+            n += 1
+            record = record | {"target": record["target"] | {"reasoning": text}}
+        out.append(record)
+    return out, {"stripped": n}

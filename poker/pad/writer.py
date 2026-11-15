@@ -535,3 +535,105 @@ def teacher_reasoning(s: HandSummary, state: PadState) -> str:
         first = f"Hand {s.hand} ended without a showdown."
     second = f"I hold {state.stack} chips, rank {rank} of {alive}."
     return f"{first} {second} I rewrite the pad in the fixed schema with updated VPIP, raise and showdown counts."
+
+
+DELTA_MAX_CHARS = 900
+
+
+def effective_prev(prev: PadState | None, s: HandSummary) -> PadState | None:
+    """The previous state `update_state` really builds on: a pad from another seat or a later hand is ignored."""
+    return prev if prev is not None and prev.hero == s.hero and prev.hand < s.hand else None
+
+
+def pad_deltas(prev: PadState | None, s: HandSummary, state: PadState) -> dict[int, dict]:
+    """Per-seat v2 count changes between the previous pad state and the one `update_state(..., v2=True)` returned.
+
+    {seat: {"vpip": ((va, vb), (va, vb)), "open": ..., "3bet": ..., "ftr": ..., "jams": (old, new), "showed": "Ah Kd",
+    "out": True}}; a key appears only when it changed. "out" seats busted this hand and carry no counts."""
+    prev = effective_prev(prev, s)
+    deltas: dict[int, dict] = {}
+    for seat in sorted(s.seen):
+        if seat == s.hero:
+            continue
+        new = state.opps.get(seat)
+        if new is None:
+            if seat in s.out:
+                deltas[seat] = {"out": True}
+            continue
+        old = prev.opps.get(seat, Opp()) if prev else Opp()
+        d: dict = {}
+        for key, fields in (("vpip", ("va", "vb")), ("open", ("opens", "open_opp")), ("3bet", ("three_bet", "three_bet_opp")),
+                            ("ftr", ("ftr_f", "ftr_g"))):
+            a, b = tuple(getattr(old, f) for f in fields), tuple(getattr(new, f) for f in fields)
+            if a != b:
+                d[key] = (a, b)
+        if old.jams != new.jams:
+            d["jams"] = (old.jams, new.jams)
+        if seat in s.showdown:
+            d["showed"] = s.showdown[seat]
+        deltas[seat] = d
+    return deltas
+
+
+def _delta_label(d: dict, mine: list[Event]) -> str:
+    if "jams" in d:
+        return "jammed"
+    parts = []
+    if "open" in d and d["open"][1][0] > d["open"][0][0]:
+        parts.append("raised first in")
+    if "3bet" in d and d["3bet"][1][0] > d["3bet"][0][0]:
+        parts.append("3-bet")
+    if "ftr" in d:
+        parts.append("folded to a raise" if d["ftr"][1][0] > d["ftr"][0][0] else "faced a raise, did not fold")
+    if parts:
+        return " and ".join(parts)
+    if "vpip" in d and d["vpip"][1][0] > d["vpip"][0][0]:
+        return "played preflop"
+    pre = [e.action for e in mine if e.street == "preflop"]
+    if not pre:
+        return "no action"
+    return "folded preflop" if pre[0] == "fold" else "checked preflop" if pre[0] == "check" else "acted preflop"
+
+
+def _delta_line(seat: int, d: dict, mine: list[Event]) -> tuple[str, bool]:
+    """(line, minor): minor lines are plain folds, checks, calls or no action: no raise, jam, fold to a raise or showdown."""
+    if d.get("out"):
+        return f"seat{seat}: busted -> out", False
+    stats = [f"{name} {a[0]}/{a[1]} -> {b[0]}/{b[1]}" for key, name in (("vpip", "VPIP"), ("open", "open"), ("3bet", "3bet"))
+             if key in d for a, b in [d[key]]]
+    if "jams" in d:
+        stats.append(f"jams {d['jams'][0]} -> {d['jams'][1]}")
+    if "ftr" in d:
+        a, b = d["ftr"]
+        stats.append(f"folds-to-raise {a[0]}/{a[1]} -> {b[0]}/{b[1]}")
+    label = _delta_label(d, mine)
+    line = f"seat{seat}: {label} -> " + ", ".join(stats)
+    if "showed" in d:
+        line += f"; showed {d['showed']}"
+    return line, "showed" not in d and label in ("folded preflop", "checked preflop", "no action", "played preflop", "acted preflop")
+
+
+def delta_reasoning(s: HandSummary, prev: PadState | None, state: PadState, max_chars: int = DELTA_MAX_CHARS) -> str:
+    """A short worked update for the cleanup turn: what changed per opponent, old count -> new count.
+
+    Every number comes from `pad_deltas`, the diff of the state `update_state` builds. When the text is over
+    `max_chars`, the lines of seats with only a VPIP denominator change go first, then lines from the end."""
+    deltas = pad_deltas(prev, s, state)
+    rows = [_delta_line(seat, d, [e for e in s.events if e.seat == seat]) for seat, d in deltas.items()]
+    extra = []
+    old = effective_prev(prev, s)
+    fts_old, fts_new = (old.fts_f, old.fts_g) if old else (0, 0), (state.fts_f, state.fts_g)
+    if fts_old != fts_new:
+        extra.append((f"blinds: fold-to-steal {fts_old[0]}/{fts_old[1]} -> {fts_new[0]}/{fts_new[1]}", False))
+    rank, alive = rank_of(state)
+    head, tail = f"Pad update for hand {s.hand}.", [f"Me: stack {state.stack}, rank {rank}/{alive}.", "Then I write the full pad."]
+    body = rows + extra
+
+    def join(items):
+        return "\n".join([head] + [line for line, _ in items] + tail)
+
+    if len(join(body)) > max_chars:
+        body = [r for r in body if not r[1]]
+    while body and len(join(body)) > max_chars:
+        body.pop()
+    return join(body)

@@ -29,7 +29,7 @@ TEMPLATE_WEIGHT = 1.0  # fixed-sentence fallback: cycle 1 showed these get memor
 AGREE_WEIGHT = 1.0
 SIMPLE_EXPLOITS = ("big_price_fold", "raise_first_in", "one_pair_pot_cap", "monster_value")  # teacher v6 tier 1
 V7_EXPLOITS = ("big_price_fold", "monster_value", "one_pair_pot_cap", "rfi_gto", "iso_raise", "bb_defend", "three_bet",
-               "vs_3bet", "field_call", "postflop_sizing", "pot_odds_call")  # teacher v7; raise_first_in is replaced by rfi_gto and iso_raise
+               "vs_3bet", "field_call", "postflop_sizing", "pot_odds_call", "facing_open_tight")  # teacher v7; raise_first_in is replaced by rfi_gto and iso_raise
 V7_RAISE_RULES = ("rfi_gto", "iso_raise", "three_bet", "vs_3bet")  # preflop raise-to corrections with a target_amount
 ABSTAIN_WEIGHT = 1.0
 
@@ -57,6 +57,10 @@ def target_from_reply(record: dict) -> dict | None:
 
 
 def _v7_rfi(verdict: dict, hand_code: str) -> str:
+    if verdict.get("oversize"):
+        return (f"Everyone folded to me and {hand_code} is a good hand to open, but a raise this big risks too much to "
+                "win the blinds. A smaller raise does the same job and costs less when someone re-raises. "
+                f"Raise to {verdict['target_amount']}.")
     if verdict["preferred"] == "fold":
         return (f"It is folded to me and {hand_code} is not strong enough to open from this seat. Limping lets everyone "
                 "in cheaply and gives up the initiative. Fold.")
@@ -84,6 +88,13 @@ def _v7_bb_defend(verdict: dict, hand_code: str) -> str:
                 "Calling with it loses chips over time. Fold.")
     return (f"I am in the big blind and already have chips in, so I need only about {verdict['required']:.0%} equity to "
             f"call. {hand_code} has more than that against this opener. Call.")
+
+
+def _v7_open_tight(verdict: dict, hand_code: str) -> str:
+    where = " and I would act first after the flop" if verdict.get("oop") else ""
+    return (f"Someone opened in front of me and {hand_code} is not strong enough to call a raise{where}. "
+            "Hands like this make weak pairs and weak draws that lose to the opener's better hands. "
+            "Calling a raise with it is usually not worth the price. Fold.")
 
 
 def _v7_vs_3bet(verdict: dict, hand_code: str) -> str:
@@ -137,7 +148,7 @@ def _v7_pot_odds_call(verdict: dict, hand_code: str) -> str:
 
 
 V7_TEXTS = {"pot_odds_call": _v7_pot_odds_call, "rfi_gto": _v7_rfi, "iso_raise": _v7_iso, "three_bet": _v7_three_bet, "bb_defend": _v7_bb_defend,
-            "vs_3bet": _v7_vs_3bet, "field_call": _v7_field_call, "postflop_sizing": _v7_sizing}
+            "facing_open_tight": _v7_open_tight, "vs_3bet": _v7_vs_3bet, "field_call": _v7_field_call, "postflop_sizing": _v7_sizing}
 
 
 def correction_reasoning(verdict: dict, hand_code: str, pad_rewritten: bool = False) -> str:
@@ -360,16 +371,27 @@ def drop_long(records, max_chars: int) -> tuple[list[dict], dict]:
     return out, {"dropped": dropped}
 
 
-def add_fact_headers(records) -> tuple[list[dict], dict]:
+def add_fact_headers(records, facts_v2: bool = False) -> tuple[list[dict], dict]:
     """Prepend poker.facts.fact_line(prompt) and a newline to every action-turn target reasoning (any source).
-    Cleanup-turn and pad records are left alone; so are records whose prompt cannot be parsed. Idempotent."""
-    from poker.facts import fact_line
+    Cleanup-turn and pad records are left alone; so are records whose prompt cannot be parsed. Idempotent.
+    facts_v2: use the v2 line, and replace a v1 "Facts:" line already on the record."""
+    from poker.facts import fact_line, fact_line_v2
 
+    fact_line = fact_line_v2 if facts_v2 else fact_line  # v2: poker.facts.render_facts_v2 (--facts-v2)
     out, stats = [], {"headed": 0, "no_facts": 0, "not_action": 0}
     for record in records:
+        reasoning = record["target"].get("reasoning") or ""
         if not _is_action_target(record):
             stats["not_action"] += 1
-        elif record["target"]["reasoning"].startswith("Facts: "):
+        elif facts_v2 and reasoning.startswith("Facts: ") and not reasoning.startswith("Facts: pos "):
+            # a v1 line (an earlier run's header): swap it for the v2 line
+            if (line := fact_line(record["messages"])) is None:
+                stats["no_facts"] += 1
+            else:
+                body = reasoning.split("\n", 1)[1] if "\n" in reasoning else ""
+                record = record | {"target": record["target"] | {"reasoning": line + ("\n" + body if body else "")}}
+                stats["headed"] += 1
+        elif reasoning.startswith("Facts: "):
             pass
         elif (line := fact_line(record["messages"])) is None:
             stats["no_facts"] += 1
@@ -552,6 +574,8 @@ def main() -> None:
     parser.add_argument("--rewrite-pads-strict", action="store_true",
                         help="implies --rewrite-pads; also drops action records whose pad could not be rewritten when they "
                              "carry a pad-dependent correction (rule pad_read), and reports rewritten/kept/dropped")
+    parser.add_argument("--strip-headers", action="store_true",
+                        help="remove Facts/Reads/Talk/Decision lines the model wrote itself before the code adds its own")
     parser.add_argument("--max-reasoning-chars", type=int, default=0,
                         help="drop action targets whose reasoning is longer than this (0 = keep all)")
     parser.add_argument("--pad-version", type=int, choices=(1, 2), default=1,
@@ -566,6 +590,13 @@ def main() -> None:
     parser.add_argument("--fact-header", action="store_true",
                         help="prepend a code-computed 'Facts: position, hand, board, made hand, price, stack, rank' line "
                              "(poker/facts.py) to every action-turn target reasoning")
+    parser.add_argument("--facts-v2", action="store_true",
+                        help="--fact-header uses Facts v2 (copyable fields only: pos P of N, cards, pot, call, legal list, stack, hand)")
+    parser.add_argument("--clean-strict", action="store_true",
+                        help="with --clean also drop conclusion_mismatch, tool_text, short_body, long_body (poker/sft/clean.py)")
+    parser.add_argument("--no-say", action="store_true", help="strip the say argument from every target and drop any left (final model: no talk)")
+    parser.add_argument("--decision-line", action="store_true",
+                        help="append 'Decision: fold | check | call N | bet N | raise to N' as the last reasoning line (runs last)")
     parser.add_argument("--drop-hallucinated", action="store_true",
                         help="drop agreements and anchors whose reasoning contradicts those facts (wrong position, a set/"
                              "flush/straight/pair the cards do not make, wrong outs); reports counts, corrections are kept")
@@ -643,20 +674,28 @@ def main() -> None:
         strict = {r["span_id"] for r, v, _ in rows if v.get("rule") == "pad_read"} if args.rewrite_pads_strict else set()
         records, rewrite_stats = rewrite_records(records, matches, index, strict_ids=strict, version=args.pad_version)
         stats["pad_rewrite"] = rewrite_stats
+    if args.strip_headers:
+        from poker.sft.clean import strip_model_headers
+
+        records, stats["strip_headers"] = strip_model_headers(records)
     if args.drop_hallucinated:
         records, stats["hallucination"] = drop_hallucinated(records)
     if args.max_reasoning_chars:
         records, stats["too_long"] = drop_long(records, args.max_reasoning_chars)
-    if args.clean:
+    if args.no_say:
+        from poker.sft.clean import strip_say
+
+        records, stats["no_say_stripped"] = strip_say(records)
+    if args.clean or args.clean_strict:
         from poker.sft.clean import clean
 
-        records, stats["clean"] = clean(records)
+        records, stats["clean"] = clean(records, strict=args.clean_strict, no_say=args.no_say)
     if args.pad_read_line:
         from poker.sft.clean import add_pad_read_line
 
         records, stats["pad_read_line"] = add_pad_read_line(records)
     if args.fact_header:
-        records, stats["fact_header"] = add_fact_headers(records)
+        records, stats["fact_header"] = add_fact_headers(records, facts_v2=args.facts_v2)
     if args.cleanup_ratio > 0:
         cleanups = [json.loads(line) for line in args.joined.open(encoding="utf-8")]
         cleanups = [r for r in cleanups if r.get("source") == "arena" and r.get("deployment") == args.cleanup_deployment]
@@ -671,6 +710,10 @@ def main() -> None:
     if args.critic_weights:
         records, dropped = apply_critic_weights(records, json.loads(args.critic_weights.read_text(encoding="utf-8")))
         stats["critic_dropped"] = dropped
+    if args.decision_line:
+        from poker.sft.clean import add_decision_line
+
+        records, stats["decision_line"] = add_decision_line(records)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", encoding="utf-8") as stream:
         for record in records:

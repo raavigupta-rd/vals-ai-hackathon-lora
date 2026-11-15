@@ -22,7 +22,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from poker.pad.writer import parse_cleanup, teacher_pad, teacher_reasoning
+from poker.pad.writer import delta_reasoning, parse_cleanup, parse_pad, teacher_pad, teacher_reasoning
 
 ROOT = Path(__file__).resolve().parents[2]
 MULTI_WEIGHT, SINGLE_WEIGHT = 2.0, 1.0
@@ -62,7 +62,10 @@ def db_agrees(db, match_id: str, summary) -> bool | None:
 
 
 def build(joined: Path, out: Path, *, chain: bool = True, sources=("arena",), multi_only: bool = False,
-          limit: int | None = None, db_path: Path | None = None, pad_version: int = 1) -> dict:
+          limit: int | None = None, db_path: Path | None = None, pad_version: int = 1,
+          delta_reasoning_on: bool = False) -> dict:
+    if delta_reasoning_on and pad_version != 2:
+        raise ValueError("--delta-reasoning needs --pad-version 2")
     stats: Counter = Counter()
     db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) if db_path else None
     parsed = []
@@ -106,12 +109,17 @@ def build(joined: Path, out: Path, *, chain: bool = True, sources=("arena",), mu
         pad, state = teacher_pad(messages, version=pad_version)
         if chain and match_id:
             last_pad[(match_id, hero)] = pad
+        if delta_reasoning_on:
+            shown = parse_cleanup(messages)  # the prompt as the model sees it, chained pad included
+            reasoning = delta_reasoning(shown, parse_pad(shown.prev_pad), state)
+        else:
+            reasoning = teacher_reasoning(summary, state)
         multi = is_multi_turn(summary.hero_actions)
         stats["multi_turn" if multi else "single_turn"] += 1
         stats["chained"] += prev is not None
         records.append({
             "messages": messages,
-            "target": {"reasoning": teacher_reasoning(summary, state), "content": "",
+            "target": {"reasoning": reasoning, "content": "",
                        "tool_call": {"name": "update_scratchpad", "arguments": {"contents": pad}}},
             "weight": MULTI_WEIGHT if multi else SINGLE_WEIGHT,
             "source": "pad_teacher", "decision_id": decision_id,
@@ -140,11 +148,13 @@ def main(argv=None) -> int:
     ap.add_argument("--sources", default="arena", help="comma list of joined 'source' values (arena, other)")
     ap.add_argument("--no-chain", action="store_true", help="keep each prompt's original pad")
     ap.add_argument("--pad-version", type=int, choices=(1, 2), default=1, help="2 = head-heavy exploit pad (default 1)")
+    ap.add_argument("--delta-reasoning", action="store_true",
+                    help="cleanup reasoning = code-generated worked count update (needs --pad-version 2)")
     ap.add_argument("--multi-only", action="store_true")
     ap.add_argument("--limit", type=int, default=None)
     a = ap.parse_args(argv)
     stats = build(a.joined, a.out, chain=not a.no_chain, sources=tuple(a.sources.split(",")), multi_only=a.multi_only,
-                  limit=a.limit, db_path=a.db, pad_version=a.pad_version)
+                  limit=a.limit, db_path=a.db, pad_version=a.pad_version, delta_reasoning_on=a.delta_reasoning)
     print(json.dumps(stats, indent=1, sort_keys=True), file=sys.stderr)
     return 0
 

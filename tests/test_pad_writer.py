@@ -495,3 +495,90 @@ def test_build_records_v2(tmp_path):
     assert pad2 in recs[2]["target"]["tool_call"]["arguments"]["contents"]
     assert recs[1]["target"]["tool_call"]["arguments"]["contents"] in recs[2]["messages"][1]["content"]
     assert br.main(["--joined", str(src), "--out", str(out), "--pad-version", "2"]) == 0
+
+
+# ---- delta reasoning (c8 cleanup targets) -------------------------------------------------------------------------
+
+def delta_setup(prev_pad="(empty)", **kw):
+    msgs = hand_msgs(prev_pad=prev_pad, **kw)
+    s = w.parse_cleanup(msgs)
+    prev = w.parse_pad(s.prev_pad)
+    pad, state = w.teacher_pad(msgs, version=2)
+    return msgs, s, prev, state
+
+
+JAM_HAND = dict(hand=2, stacks_now=(0, 300, 190, 200, 203, 200), hero_actions=("fold",),
+                first_actions=["  preflop: seat1 (seat 1) raise to 6", "  preflop: seat2 (seat 2) fold",
+                               "  preflop: seat3 (seat 3) fold", "  preflop: seat0 (seat 0) all-in",
+                               "  preflop: seat5 (seat 5) fold"],
+                final="Final board: -\nShowdown: seat1 showed Ah Kd, seat0 showed 2c 2d. Mucked: none.")
+
+
+def test_pad_deltas_report_changed_counts_from_the_same_state_update():
+    first, _ = w.teacher_pad(hand_msgs(hand=1, first_actions=["  (no actions)"]), version=2)
+    msgs, s, prev, state = delta_setup(prev_pad=first, **JAM_HAND)
+    d = w.pad_deltas(prev, s, state)
+    assert d[1]["showed"] == "Ah Kd" and d[1]["open"] == ((0, 0), (1, 1)) and d[1]["vpip"] == ((0, 1), (1, 2))
+    assert d[2]["ftr"] == ((0, 0), (1, 1)) and d[2]["vpip"] == ((0, 1), (0, 2))
+    assert d[3]["vpip"] == ((0, 1), (0, 2))
+    # old -> new always matches the previous pad and the new state
+    assert d[0] == {"out": True}
+    for seat, ch in d.items():
+        if seat == 0:
+            continue
+        o_new = state.opps[seat]
+        assert ch["vpip"][1] == (o_new.va, o_new.vb)
+        assert ch["vpip"][0] == (prev.opps[seat].va, prev.opps[seat].vb)
+
+
+def test_delta_reasoning_format_and_unchanged_lines():
+    first, _ = w.teacher_pad(hand_msgs(hand=1, first_actions=["  (no actions)"]), version=2)
+    msgs, s, prev, state = delta_setup(prev_pad=first, **JAM_HAND)
+    text = w.delta_reasoning(s, prev, state)
+    lines = text.split("\n")
+    assert lines[0] == "Pad update for hand 2." and lines[-1] == "Then I write the full pad."
+    assert lines[-2].startswith("Me: stack 203, rank ") and lines[-2].endswith(".")
+    assert "seat1: raised first in -> VPIP 0/1 -> 1/2, open 0/0 -> 1/1; showed Ah Kd" in lines
+    assert "seat2: folded to a raise -> VPIP 0/1 -> 0/2, 3bet 0/0 -> 0/1, folds-to-raise 0/0 -> 1/1" in lines
+    assert "seat5: folded to a raise -> VPIP 0/1 -> 0/2, folds-to-raise 0/0 -> 1/1" in lines
+    assert any(l.startswith("seat0:") and "out" in l for l in lines)  # seat0 busted
+
+
+def test_delta_reasoning_jam_and_unchanged_seat():
+    msgs, s, prev, state = delta_setup(hand=1, stacks_now=(0, 200, 200, 200, 200, 200),
+                                       first_actions=["  preflop: seat0 (seat 0) all-in", "  preflop: seat1 (seat 1) fold"])
+    text = w.delta_reasoning(s, prev, state)
+    assert "seat0: busted" in text
+    msgs, s, prev, state = delta_setup(hand=1, stacks_now=(120, 200, 200, 200, 200, 200),
+                                       first_actions=["  preflop: seat0 (seat 0) all-in", "  preflop: seat1 (seat 1) fold"])
+    text = w.delta_reasoning(s, prev, state)
+    assert "seat0: jammed" in text and "jams 0 -> 1" in text
+    assert "seat3: no action -> VPIP 0/0 -> 0/1" in text  # saw the hand, took no action
+
+
+def test_delta_reasoning_capped_drops_unchanged_seats_first():
+    first, _ = w.teacher_pad(hand_msgs(hand=1, first_actions=["  (no actions)"]), version=2)
+    msgs, s, prev, state = delta_setup(prev_pad=first, hand=2, stacks_now=(200, 203, 200, 200, 197, 200),
+                                       first_actions=["  preflop: seat1 (seat 1) raise to 6"], hero_actions=("fold",))
+    full = w.delta_reasoning(s, prev, state)
+    assert "seat3: no action -> VPIP 0/1 -> 0/2" in full
+    text = w.delta_reasoning(s, prev, state, max_chars=len(full) - 10)
+    assert len(text) <= len(full) - 10
+    assert "seat1: raised first in" in text and "no action" not in text and text.endswith("Then I write the full pad.")
+
+
+def test_build_records_delta_reasoning_flag(tmp_path):
+    src = tmp_path / "joined.jsonl"
+    src.write_text("\n".join(json.dumps(r) for r in [joined(1), joined(2)]))
+    out = tmp_path / "pad.jsonl"
+    br.build(src, out, chain=True, pad_version=2, delta_reasoning_on=True)
+    recs = {json.loads(l)["meta"]["hand"]: json.loads(l) for l in out.read_text().splitlines()}
+    for h, r in recs.items():
+        assert r["target"]["reasoning"].startswith(f"Pad update for hand {h}.")
+        assert len(r["target"]["reasoning"]) <= 900
+    assert "VPIP 0/1 -> 0/2" in recs[2]["target"]["reasoning"]  # chained: counts continue from hand 1
+    br.build(src, out, chain=True, pad_version=2)
+    assert not json.loads(out.read_text().splitlines()[0])["target"]["reasoning"].startswith("Pad update")
+    with pytest.raises(ValueError):
+        br.build(src, out, pad_version=1, delta_reasoning_on=True)
+    assert br.main(["--joined", str(src), "--out", str(out), "--pad-version", "2", "--delta-reasoning"]) == 0

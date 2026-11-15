@@ -138,6 +138,14 @@ def _hands(full: str) -> tuple[int, int] | None:
     return (int(found[-1][0]), int(found[-1][1])) if found else None
 
 
+def _legal_line(prompt) -> str | None:
+    """The prompt's last "Legal actions: ..." line, exactly as written."""
+    texts = [text_content(m) for m in prompt]
+    current = next((t for t in reversed(texts) if re.search(r"^Street: ", t, re.M)), "")
+    found = re.findall(r"^Legal actions: (.+)$", current, re.M)
+    return found[-1].strip() if found else None
+
+
 def compute_facts(prompt) -> dict | None:
     state = parse_prompt(prompt)
     if not state:
@@ -171,7 +179,8 @@ def compute_facts(prompt) -> dict | None:
     made, ambiguous = made_hand(state["hole"], state["board"])
     hands = _hands(full)
     to_call, pot = state["to_call"], state["pot"]
-    return dict(position=names[state["position"]], behind=behind, hole_code=hand_code(state["hole"]),
+    return dict(position=names[state["position"]], pos_num=state["position"], hand=hands[0] if hands else None,
+                hands_total=hands[1] if hands else None, legal=_legal_line(prompt), behind=behind, hole_code=hand_code(state["hole"]),
                 hole=state["hole"], board=state["board"], street=state["street"], made=made, ambiguous=ambiguous,
                 draw=draws(state["hole"], state["board"]), pot=pot, to_call=to_call,
                 required=to_call / (pot + to_call) if to_call > 0 else 0.0, chips=chips, stack_bb=chips / BB,
@@ -195,6 +204,29 @@ def render_facts(f: dict) -> str:
     if f["hands_left"] is not None:
         parts.append(f"{f['hands_left']} hands left")
     return "Facts: " + ", ".join(parts) + "."
+
+
+def render_facts_v2(f: dict) -> str:
+    """Facts v2: only fields the model can copy from the prompt or compute trivially. No rank, gap, position name or
+    seats behind. "Facts: pos P of N (0=SB), c1 c2 (class), board ..., made, pot X, call Y (Z%) | no bet,
+    legal <as listed, joined with ' | '>, stack S BB, hand H/30." """
+    made = f["made"] or "no made hand"
+    if f["draw"]:
+        made += f", {f['draw']['name']} {f['draw']['outs']} outs"
+    price = f"call {f['to_call']:g} ({f['required']:.0%})" if f["to_call"] > 0 else "no bet"
+    parts = [f"pos {f['pos_num']} of {f['n_live']} (0=SB)", f"{' '.join(f['hole'])} ({f['hole_code']})",
+             f"board {' '.join(f['board']) or '-'}", made, f"pot {f['pot']}", price]
+    if f.get("legal"):
+        parts.append("legal " + " | ".join(a.strip() for a in f["legal"].split(",")))
+    parts.append(f"stack {round(f['stack_bb'])} BB")
+    if f.get("hand") is not None:
+        parts.append(f"hand {f['hand']}/{f['hands_total']}")
+    return "Facts: " + ", ".join(parts) + "."
+
+
+def fact_line_v2(prompt) -> str | None:
+    f = compute_facts(prompt)
+    return render_facts_v2(f) if f else None
 
 
 def fact_line(prompt) -> str | None:
@@ -377,7 +409,7 @@ def contradictions(reasoning: str, facts: dict | None) -> list[str]:
     last = {kind: message for kind, message in checked}
     out = [m for m in last.values() if m]
     # Only the last stated position counts: "I'm in the SB... wait, I'm the BTN" is a self-correction.
-    if claims and not _POS_OK[claims[-1]] & set(facts["position"].split("/")):
+    if claims and facts.get("position") and not _POS_OK[claims[-1]] & set(facts["position"].split("/")):
         out.append(f"position: says {claims[-1]} but we are {facts['position']}")
     truly_suited = facts["hole"][0][1] == facts["hole"][1][1]
     if suit_claims and (suit_claims[-1] == "on") != truly_suited:

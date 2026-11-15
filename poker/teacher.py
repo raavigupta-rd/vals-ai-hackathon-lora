@@ -87,7 +87,7 @@ def equity_vs_range(hole: list[str], codes: list[str], board: list[str] = (), sa
 
 
 # v5 exploit rules, each on only when named here, e.g. EXPLOITS = {"river_fold", "steal", "stab"}; also "oversize", "monster_call", "river_air_fold".
-# v7: "rfi_gto", "iso_raise", "three_bet", "bb_defend", "vs_3bet", "postflop_sizing" (see the teacher v7 section).
+# v7: "rfi_gto", "iso_raise", "three_bet", "bb_defend", "facing_open_tight", "vs_3bet", "postflop_sizing" (see the teacher v7 section).
 EXPLOITS: set[str] = set()
 STEAL_RANGES = {
     "CO": "22+ A2s+ K5s+ Q8s+ J8s+ T8s+ 97s+ 86s+ 76s 65s A7o+ K9o+ QTo+ JTo",
@@ -568,7 +568,8 @@ def judge(con, match_id: str, hand: int, seat: int, action_index: int) -> dict:
         return v
     if "pot_odds_call" in EXPLOITS and (v := _pot_odds_call(row, before, stack0, verdict)):
         return v
-    if "big_price_fold" in EXPLOITS and (v := _big_price_fold(row, stack0, verdict, before)):
+    if "big_price_fold" in EXPLOITS and (v := _big_price_fold(
+            row, stack0, verdict, before, rank_floor=lambda: _rank_floor(con, match_id, hand, seat))):
         return v
     for name, rule in V7_PREFLOP:
         if name in EXPLOITS and (v := rule(row, before, raises, stack0, verdict)):
@@ -740,7 +741,7 @@ def _oversize(row, before, raises, verdict) -> dict | None:
 # ---- teacher v6 tier-1 rules (each on only when named in EXPLOITS) ----
 BIG_PRICE_CHIPS, BIG_PRICE_STACK_FRAC, HUGE_PRICE_STACK_FRAC = 24, 0.20, 0.40
 BIG_PRICE_CONTINUE = {"AA", "KK", "QQ", "JJ", "TT", "AKs", "AKo", "AQs"}
-HUGE_PRICE_CONTINUE = {"AA", "KK", "QQ", "JJ", "AKs", "AKo"}
+HUGE_PRICE_CONTINUE = {"AA", "KK", "QQ", "JJ", "TT", "AKs", "AKo"}
 FIRST_IN_RANGE = "22+ A2s+ A9o+ K9s+ KTo+ Q9s+ QTo+ J9s+ JTo T8s+ 98s 87s 76s 65s"
 FIRST_IN_SEATS = ("CO", "BTN", "SB")
 EARLY_OPEN_RANGE = "22+ ATs+ AJo+ KQs KQo"  # open-limps outside this from UTG/HJ are folds
@@ -763,18 +764,49 @@ def open_target(position: str, code: str, limpers: int) -> int:
 POT_ODDS_HU, POT_ODDS_MULTI = 0.20, 0.12  # required equity at or below this is a call with any two cards
 
 
-def _cheap_all_in(row, before, stack0) -> float | None:
-    """The required equity when the call ends the betting for us (we are all-in for it, or the bettor is all-in) and
-    the price is at or below the any-two-cards threshold: 20% against one opponent, 12% against more. Else None."""
+BLIND_POSTED = {"SB": 1, "HU_SB": 1, "BB": 2, "HU_BB": 2}  # the arena records blinds in pot_before, not in chip_change
+
+
+def _effective_price(row, before, stack0) -> tuple[float, int] | None:
+    """(required equity, live opponents) of a preflop call, counting only the chips we can win.
+
+    A short stack wins just the matched part of the pot: with T = what we have in after the call, every opponent
+    contributes at most T (folded players' chips are dead money, capped the same way). Our earlier chips and blind
+    count in full. Blinds that have not acted yet are the part of `pot_before` no earlier row explains (at most 3).
+    """
     to_call = row["to_call"] or 0
     if row["street"] != "preflop" or to_call <= 0 or not stack0:
         return None
-    if not (row["facing_allin"] or to_call >= stack0):
-        return None
-    required = to_call / ((row["pot_before"] or 0) + to_call)
+    commit: dict[int, float] = {}
+    for r in before:
+        if r["street"] == "preflop":
+            commit[r["seat"]] = commit.get(r["seat"], BLIND_POSTED.get(r["position"], 0)) - (r["chip_change"] or 0)
+    mine = commit.pop(row["seat"], BLIND_POSTED.get(row["position"], 0))
+    unseen = min(3.0, max(0.0, (row["pot_before"] or 0) - mine - sum(commit.values())))
+    blinds = [1.0, 2.0] if unseen == 3 else [unseen] if unseen > 0 else []
+    call_eff = min(to_call, stack0)
+    total = mine + call_eff
+    pot = mine + sum(min(c, total) for c in [*commit.values(), *blinds])
     folded = {r["seat"] for r in before if r["action"] == "fold"}
-    others = {r["seat"] for r in before if r["action"] in ("call", "raise", "bet") and r["seat"] != row["seat"]} - folded
-    return required if required <= (POT_ODDS_HU if len(others) <= 1 else POT_ODDS_MULTI) else None
+    live = {r["seat"] for r in before if r["action"] in ("call", "raise", "bet")} - folded - {row["seat"]}
+    return call_eff / (pot + call_eff), len(live)
+
+
+def _cheap_price(row, before, stack0) -> float | None:
+    """The effective required equity when it is at or below the any-two-cards threshold (20% against one live opponent,
+    12% against more), else None."""
+    price = _effective_price(row, before, stack0)
+    if price is None:
+        return None
+    required, live = price
+    return required if required <= (POT_ODDS_HU if live <= 1 else POT_ODDS_MULTI) else None
+
+
+def _cheap_all_in(row, before, stack0) -> float | None:
+    """`_cheap_price` when the call ends the betting for us (we are all-in for it, or the bettor is all-in)."""
+    if not (row["facing_allin"] or (row["to_call"] or 0) >= (stack0 or 0)):
+        return None
+    return _cheap_price(row, before, stack0)
 
 
 def _pot_odds_call(row, before, stack0, verdict) -> dict | None:
@@ -787,19 +819,32 @@ def _pot_odds_call(row, before, stack0, verdict) -> dict | None:
     return verdict | {"rule": "pot_odds_call", "preferred": "call", "agree": False, "required": round(required, 4)}
 
 
-def _big_price_fold(row, stack0, verdict, before=()) -> dict | None:
+def _rank_floor(con, match_id: str, hand: int, seat: int) -> bool:
+    """True on the last hand when we have the smallest stack among the live players: losing cannot lower our rank."""
+    m = con.execute("SELECT total_hands FROM matches WHERE match_id=?", (match_id,)).fetchone()
+    if hand < ((m and m[0]) or 30):
+        return False
+    stacks = {r[0]: r[1] for r in con.execute(
+        "SELECT seat, starting_stack FROM hole_cards WHERE match_id=? AND hand_number=?", (match_id, hand))}
+    mine = stacks.pop(seat, None)
+    return mine is not None and bool(stacks) and all(mine < s for s in stacks.values() if s is not None)
+
+
+def _big_price_fold(row, stack0, verdict, before=(), rank_floor=None) -> dict | None:
     """Rule `big_price_fold`: a big price before the flop and we continue with a hand outside the strong set. Fold.
-    A cheap all-in price (see `_cheap_all_in`) is never a fold."""
+    Never when the effective price is cheap (see `_effective_price`), nor on the last hand when we are already last."""
     to_call = row["to_call"] or 0
     if row["street"] != "preflop" or to_call <= 0 or row["action"] not in ("call", "raise"):
         return None
-    if _cheap_all_in(row, before, stack0) is not None:
+    if _cheap_price(row, before, stack0) is not None:
         return None
     allin = bool(row["facing_allin"])
     if not (to_call > BIG_PRICE_CHIPS or (stack0 and to_call > BIG_PRICE_STACK_FRAC * stack0) or allin):
         return None
     huge = allin or (stack0 and to_call > HUGE_PRICE_STACK_FRAC * stack0)
     if row["hand_code"] in (HUGE_PRICE_CONTINUE if huge else BIG_PRICE_CONTINUE):
+        return None
+    if rank_floor is not None and rank_floor():
         return None
     return verdict | {"rule": "big_price_fold", "preferred": "fold", "agree": False}
 
@@ -983,18 +1028,29 @@ def _v7_verdict(verdict, rule, preferred, **extra) -> dict:
     return verdict | {"rule": rule, "preferred": preferred, "agree": False} | extra
 
 
+RFI_MAX_OPEN = {"SB": 7}  # a first-in raise above this many chips (3 BB: 6, from the SB 7) is oversized; default 6
+RFI_MAX_OPEN_DEFAULT, RFI_ALLIN_BB = 6, 15
+
+
 def _rfi_gto(row, before, raises, stack0, verdict) -> dict | None:
-    """Rule `rfi_gto`: first in with no limper. A fold or limp of a hand in the seat's chart is a raise to 5 (6 from
-    the SB); an open-limp of a hand outside the chart is a fold. A fold of an outside hand is never corrected."""
+    """Rule `rfi_gto`: first in with no limper. A fold or limp (the SB completing) of a hand in the seat's chart is a
+    raise to 5 (6 from the SB); an open-limp of a hand outside the chart is a fold. A first-in raise of a chart hand
+    above 3 BB (SB: 7 chips) is cut back to the chart size unless it is an all-in under 15 BB. A fold of an outside
+    hand and a raise of an outside hand are never corrected."""
     ctx = _v7_preflop(row, before, raises, stack0)
-    if ctx is None or raises or row["action"] not in ("fold", "call"):
+    if ctx is None or raises or row["action"] not in ("fold", "call", "raise"):
         return None
     position, code, limpers = ctx
-    if limpers or position not in RFI_GTO:
+    if limpers or position not in RFI_GTO or not in_range(code, RFI_GTO[position]) and row["action"] != "call":
         return None
+    if row["action"] == "raise":
+        allin_short = row["stack_after"] == 0 and (row["effective_stack"] or stack0) / 2 < RFI_ALLIN_BB
+        if allin_short or (row["amount"] or 0) <= RFI_MAX_OPEN.get(position, RFI_MAX_OPEN_DEFAULT):
+            return None
+        return _v7_verdict(verdict, "rfi_gto", "raise", target_amount=RFI_SIZE[position], oversize=True)
     if in_range(code, RFI_GTO[position]):
         return _v7_verdict(verdict, "rfi_gto", "raise", target_amount=RFI_SIZE[position])
-    return _v7_verdict(verdict, "rfi_gto", "fold") if row["action"] == "call" else None
+    return _v7_verdict(verdict, "rfi_gto", "fold")
 
 
 def _iso_raise(row, before, raises, stack0, verdict) -> dict | None:
@@ -1042,22 +1098,47 @@ def _three_bet(row, before, raises, stack0, verdict) -> dict | None:
 
 
 def _bb_defend(row, before, raises, stack0, verdict) -> dict | None:
-    """Rule `bb_defend`: big blind facing one open and no caller. A fold of a hand in the defend range for the opener's
-    seat is a call when the price is 28% or less; a call with an offsuit hand outside the range is a fold."""
+    """Rule `bb_defend`: big blind facing one open and no caller. A call with an offsuit hand outside the defend range
+    for the opener's seat is a fold. A fold is never turned into a call: calling an open loses chips over time."""
     ctx = _v7_preflop(row, before, raises, stack0)
     opener = _single_open(row, before, raises) if ctx else None
-    if opener is None or ctx[0] != "BB" or row["action"] not in ("fold", "call") or opener["position"] is None:
+    if opener is None or ctx[0] != "BB" or row["action"] != "call" or opener["position"] is None:
         return None
     code, to_call = ctx[1], row["to_call"]
     required = to_call / (row["pot_before"] + to_call)
     cheap, early = required <= DEFEND_MAX_REQUIRED, opener["position"] in ("UTG", "HJ")
     inside = in_range(code, DEFEND_EARLY if early else DEFEND_LATE if cheap else DEFEND_BIG)
-    if row["action"] == "fold":
-        return _v7_verdict(verdict, "bb_defend", "call", required=round(required, 4)) if inside and cheap else None
     hi, lo, kind = _parts(code)
     if inside or hi == lo or kind != "o" or (cheap and not early and in_range(code, DEFEND_MARGINAL_OFFSUIT)):
         return None
     return _v7_verdict(verdict, "bb_defend", "fold", required=round(required, 4))
+
+
+OPEN_CALL_SUITED = "ATs+ KTs+ QTs+ JTs"
+OPEN_CALL_OFFSUIT = "AQo+ KQo"
+
+
+def _facing_open_tight(row, before, raises, stack0, verdict) -> dict | None:
+    """Rule `facing_open_tight`: one open that is not all-in, no caller, and we are not in the big blind. A call with a
+    hand outside pairs (in position only), ATs+ KTs+ QTs+ JTs, AQo+ and KQo is a fold. Hands in the 3-bet value range
+    are left to `three_bet`. A fold is never turned into a call."""
+    ctx = _v7_preflop(row, before, raises, stack0)
+    opener = _single_open(row, before, raises) if ctx else None
+    if opener is None or ctx[0] == "BB" or row["action"] != "call" or opener["stack_after"] == 0:
+        return None
+    if any(r["street"] == "preflop" and r["action"] == "call" for r in before):
+        return None
+    position, code = ctx[0], ctx[1]
+    spec = THREE_BET_VALUE.get(opener["position"])
+    if spec and in_range(code, spec):
+        return None
+    hi, lo, _ = _parts(code)
+    if hi == lo:
+        if _in_position(position, opener["position"]) is not False:
+            return None  # a pair in position (or a seat we cannot place) stays a call
+    elif in_range(code, OPEN_CALL_SUITED) or in_range(code, OPEN_CALL_OFFSUIT):
+        return None
+    return _v7_verdict(verdict, "facing_open_tight", "fold", oop=_in_position(position, opener["position"]) is False)
 
 
 def _vs_3bet(row, before, raises, stack0, verdict) -> dict | None:
@@ -1205,11 +1286,26 @@ def _field_call(row, before, raises, stack0, verdict) -> dict | None:
     if row["action"] in ("call", "raise"):
         return _v7_verdict(verdict, "field_call", "fold", **extra) if equity < required - FIELD_FOLD_MARGIN else None
     code = row["hand_code"]
+    if situation == "open" or not _in_continue_set(code, situation, row["position"], position):
+        return None  # calls of opens lose; against a 3-bet or a jam only the top hands are ever turned into calls
     if code.endswith("o") and code not in _field_offsuit_calls():
         return None
     realize = FIELD_REALIZE_OOP if row["position"] in ("SB", "BB") else FIELD_REALIZE_IP
     margin = FIELD_BIG_CALL_MARGIN if to_call > FIELD_BIG_STACK_FRAC * stack0 else FIELD_CALL_MARGIN
     return _v7_verdict(verdict, "field_call", "call", **extra) if equity * realize > required + margin else None
+
+
+FIELD_CONTINUE = {"jam": "TT+ AKs AKo AQs", "3bet": "JJ+ AKs AKo AQs"}
+FIELD_CONTINUE_IP_EXTRA = "TT AQo"  # a 3-bet call in position also takes these
+
+
+def _in_continue_set(code: str, situation: str, hero: str, aggressor: str) -> bool:
+    spec = FIELD_CONTINUE.get(situation)
+    if spec is None:
+        return False
+    if situation == "3bet" and _in_position(hero, aggressor):
+        spec += " " + FIELD_CONTINUE_IP_EXTRA
+    return in_range(code, spec)
 
 
 _OFFSUIT_CALLS: set | None = None
@@ -1223,7 +1319,7 @@ def _field_offsuit_calls() -> set:
 
 
 V7_PREFLOP = (("rfi_gto", _rfi_gto), ("iso_raise", _iso_raise), ("three_bet", _three_bet), ("bb_defend", _bb_defend),
-              ("vs_3bet", _vs_3bet), ("field_call", _field_call))
+              ("facing_open_tight", _facing_open_tight), ("vs_3bet", _vs_3bet), ("field_call", _field_call))
 
 
 def agrees(verdict: dict, action: str, amount=None, *, min_amount=None) -> bool:

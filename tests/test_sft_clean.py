@@ -284,3 +284,159 @@ def test_clean_leaves_input_unchanged_and_records_are_json_serialisable():
     before = json.dumps(records)
     out, _ = clean(records)
     assert json.dumps(records) == before and json.dumps(out)
+
+
+# ---- c8 target filters ----
+
+def _facts_free(reasoning, action="fold", legal="fold, call 2, raise to 4-200", amount=None, **kw):
+    return record(messages(hand=5, pad_text=pad(5), legal=legal), action=action, amount=amount, reasoning=reasoning, **kw)
+
+
+BODY = ("Seat 0 raised and I hold a weak offsuit hand out of position. The price is 40% of the pot, so I need real equity, "
+        "and this hand has little against a raiser. Folding costs nothing more. ")
+
+
+def test_legal_target_checks_verbs_and_ranges():
+    from poker.sft.clean import legal_target
+
+    assert legal_target(_facts_free(BODY, "call"))
+    assert legal_target(_facts_free(BODY, "raise", amount=4))
+    assert legal_target(_facts_free(BODY, "raise", amount=200))
+    assert not legal_target(_facts_free(BODY, "raise", amount=3))
+    assert not legal_target(_facts_free(BODY, "raise", amount=201))
+    assert not legal_target(_facts_free(BODY, "raise"))  # no amount
+    assert not legal_target(_facts_free(BODY, "bet", amount=10))  # bet not legal here
+    assert not legal_target(_facts_free(BODY, "check"))
+    assert not legal_target(_facts_free(BODY, "allin"))
+    assert not legal_target(_facts_free(BODY, "fold", legal="check, bet to 2-100"))
+    assert legal_target(pad_record(3, "x"))  # not an action turn
+
+
+def test_illegal_filter_rejects_out_of_range_and_unknown_verbs():
+    bad = [_facts_free(BODY, "raise", amount=3), _facts_free(BODY, "raise", amount=999), _facts_free(BODY, "allin"),
+           _facts_free(BODY, "raise")]
+    out, stats = clean(bad)
+    assert out == [] and dropped(stats, "illegal") == 4
+
+
+def test_strict_filters_are_opt_in():
+    r = _facts_free("Fold.")
+    assert clean([r])[0] == [r]
+    out, stats = clean([r], strict=True)
+    assert out == [] and dropped(stats, "short_body") == 1
+
+
+def test_short_and_long_body_ignore_header_lines():
+    head = "Facts: pos 2 of 5 (0=SB), x\nReads: nothing relevant\nTalk: none\nDecision: fold\n"
+    short = _facts_free(head + "Fold, weak.")
+    long = _facts_free(BODY * 20)
+    ok = _facts_free("Facts: pos 2 of 5\n" + BODY)
+    out, stats = clean([short, long, ok], strict=True)
+    assert out == [ok]
+    assert dropped(stats, "short_body") == 1 and dropped(stats, "long_body") == 1
+
+
+def test_tool_text_filter():
+    texts = ["<tool_call><function=submit_action>", "then <function=submit_action>", "</tool_response>", '{"name": "submit_action"}']
+    recs = [_facts_free(BODY + t) for t in texts] + [_facts_free(BODY, content="ok <tool_call>")]
+    out, stats = clean(recs, strict=True)
+    assert out == [] and dropped(stats, "tool_text") == 5
+
+
+def test_conclusion_mismatch_filter():
+    mismatched = [
+        _facts_free(BODY + "I should fold.", "call"),
+        _facts_free(BODY + "So I'll fold here.", "raise", amount=10),
+        _facts_free(BODY + "Folding is best.", "call"),
+        _facts_free(BODY + "I'll call.", "fold"),
+        _facts_free(BODY + "I'll raise.", "call"),
+    ]
+    fine = [
+        _facts_free(BODY + "I'll fold.", "fold"),
+        _facts_free(BODY + "I'll call.", "call"),
+        _facts_free(BODY + "I could fold, but I'll call.", "call"),  # both verbs
+        _facts_free(BODY + "I'll fold to a reraise, but I'll call now.", "call"),
+        _facts_free(BODY + "I shouldn't fold. Call.", "call"),
+        _facts_free(BODY + "I'll bet.", "raise", amount=10),  # same family
+        _facts_free("I should fold " + "x" * 400 + BODY + "I'll call.", "call"),  # old text outside the last 250 chars
+    ]
+    out, stats = clean(mismatched + fine, strict=True)
+    assert out == fine, [r["target"]["reasoning"][-40:] for r in out]
+    assert dropped(stats, "conclusion_mismatch") == 5
+
+
+def test_no_say_filter_and_strip():
+    from poker.sft.clean import strip_say
+
+    r = _facts_free(BODY)
+    r["target"]["tool_call"]["arguments"]["say"] = "nice"
+    assert clean([r], strict=True)[0] == [r]  # opt-in
+    out, stats = clean([r], strict=True, no_say=True)
+    assert out == [] and dropped(stats, "has_say") == 1
+    stripped, n = strip_say([r])
+    assert "say" not in stripped[0]["target"]["tool_call"]["arguments"] and n == 1
+    assert r["target"]["tool_call"]["arguments"]["say"] == "nice"  # input not mutated
+
+
+# ---- decision line ----
+
+def test_decision_line_variants_and_idempotence():
+    from poker.sft.clean import add_decision_line
+
+    recs = [_facts_free(BODY, "fold"), _facts_free(BODY, "call"), _facts_free(BODY, "raise", amount=12),
+            record(messages(hand=5, pad_text=pad(5), legal="check, bet to 2-200"), action="bet", amount=7, reasoning=BODY),
+            record(messages(hand=5, pad_text=pad(5), legal="check, bet to 2-200"), action="check", reasoning=BODY + "\n")]
+    out, stats = add_decision_line(recs)
+    last = [r["target"]["reasoning"].split("\n")[-1] for r in out]
+    assert last == ["Decision: fold", "Decision: call 2", "Decision: raise to 12", "Decision: bet 7", "Decision: check"]
+    assert stats["added"] == 5
+    again, stats = add_decision_line(out)
+    assert again == out and stats["added"] == 0 and stats["already"] == 5
+    assert recs[0]["target"]["reasoning"] == BODY
+
+
+def test_decision_line_skips_pad_turns_and_unbuildable():
+    from poker.sft.clean import add_decision_line
+
+    pad_r = pad_record(3, "x")
+    illegal = _facts_free(BODY, "raise")  # no amount
+    out, stats = add_decision_line([pad_r, illegal])
+    assert out == [pad_r, illegal] and stats["not_action"] == 1 and stats["unbuildable"] == 1
+
+
+def test_decision_line_ignores_prose_that_starts_with_decision():
+    from poker.sft.clean import add_decision_line
+
+    prose = _facts_free(BODY + "\nDecision: Fold 7c Jc here.", "fold")
+    out, stats = add_decision_line([prose])
+    assert out[0]["target"]["reasoning"].endswith("Decision: Fold 7c Jc here.\nDecision: fold") and stats["added"] == 1
+
+
+def test_no_say_alone_does_not_switch_on_the_strict_filters():
+    m = messages(hole="7h 2c")
+    short = record(m, reasoning="Fold.")  # under MIN_BODY: only --clean-strict drops it
+    out, stats = clean([short], no_say=True)
+    assert out == [short] and not stats["dropped"]
+
+
+def test_strict_drops_non_ascii_and_think_tags():
+    m = messages(hole="7h 2c")
+    body = "This hand is weak from early position and there is nothing to gain by playing it against five players. " * 2
+    ok = record(m, reasoning=body + "Fold.")
+    cjk = record(m, reasoning=body + "弃牌是标准操作。Fold.")
+    tag = record(m, reasoning=body + "</thinking> Fold.")
+    out, stats = clean([ok, cjk, tag], strict=True)
+    assert out == [ok] and dropped(stats, "junk_text") == 2
+
+
+def test_strip_model_headers_removes_the_models_own_header_lines():
+    from poker.sft.clean import strip_model_headers
+
+    m = messages(hole="7h 2c")
+    r = record(m, reasoning="Facts: UTG (9 behind), 72s.\nReads: nothing relevant\nFacts: BB, 72o.\nTalk: seat3 is noise.\n"
+                            "This hand is weak.\nI fold.\nDecision: fold")
+    pad_rec = pad_record(10, pad(10))
+    out, stats = strip_model_headers([r, pad_rec])
+    assert out[0]["target"]["reasoning"] == "This hand is weak.\nI fold."
+    assert out[1] == pad_rec and stats == {"stripped": 1}
+    assert r["target"]["reasoning"].startswith("Facts: UTG")  # input not mutated

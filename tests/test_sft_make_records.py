@@ -636,7 +636,7 @@ def test_cli_flags_run_and_report(monkeypatch, tmp_path):
 
 # ---- teacher v7 ----
 V7_NAMES = {"big_price_fold", "monster_value", "one_pair_pot_cap", "rfi_gto", "iso_raise", "bb_defend", "three_bet",
-            "vs_3bet", "postflop_sizing", "field_call", "pot_odds_call"}
+            "vs_3bet", "postflop_sizing", "field_call", "pot_odds_call", "facing_open_tight"}
 
 
 def test_v7_flag_enables_exactly_the_v7_rules(monkeypatch, tmp_path):
@@ -793,3 +793,56 @@ def test_v7_pot_odds_call_text_is_plain_poker():
     assert "pot_odds_call" in V7_EXPLOITS
     text = V7_TEXTS["pot_odds_call"]({"rule": "pot_odds_call", "preferred": "call", "required": 0.015}, "72o")
     assert "call" in text.lower() and not any(w in text.lower() for w in ("percent", "%", "data", "field", "sample", "team"))
+
+
+def _c8_record():
+    from tests.test_sft_clean import BODY, _facts_free
+
+    return _facts_free(BODY, "call") | {"decision_id": "d", "cycle": 1}
+
+
+def test_add_fact_headers_facts_v2_flag():
+    from poker.sft.make_records import add_fact_headers
+    from tests.test_sft_clean import BODY
+
+    out, stats = add_fact_headers([_c8_record()], facts_v2=True)
+    first = out[0]["target"]["reasoning"].split("\n")[0]
+    assert first.startswith("Facts: pos ") and "(0=SB)" in first and "legal fold | call 2 | raise to 4-200" in first
+    assert out[0]["target"]["reasoning"].endswith(BODY) and stats["headed"] == 1
+
+
+def test_c8_cli_flags_wire_through(monkeypatch, tmp_path):
+    import json
+    import sys
+
+    from poker.sft import make_records
+
+    joined_path = tmp_path / "j.jsonl"
+    joined_path.write_text("")
+    rec = _c8_record()
+    rec["target"]["tool_call"]["arguments"]["say"] = "hi"
+    monkeypatch.setattr(make_records, "select", lambda rows, **kw: ([rec], {}))
+    out = tmp_path / "o.jsonl"
+    monkeypatch.setattr(sys, "argv", ["x", "--joined", str(joined_path), "--db", str(tmp_path / "a.db"), "--cycle", "1",
+                                      "--cleanup-ratio", "0", "--fact-header", "--facts-v2", "--no-say", "--decision-line",
+                                      "--clean", "--clean-strict", "--out", str(out)])
+    make_records.main()
+    written = [json.loads(line) for line in out.read_text().splitlines()]
+    assert len(written) == 1
+    lines = written[0]["target"]["reasoning"].split("\n")
+    assert lines[0].startswith("Facts: pos ") and lines[-1] == "Decision: call 2"
+    assert "say" not in written[0]["target"]["tool_call"]["arguments"]
+
+
+def test_facts_v2_replaces_a_v1_line_and_is_idempotent():
+    from poker.sft.make_records import add_fact_headers
+    from tests.test_sft_clean import BODY
+
+    v1, _ = add_fact_headers([_c8_record()])
+    assert v1[0]["target"]["reasoning"].startswith("Facts: UTG (4 behind)")
+    v2, stats = add_fact_headers(v1, facts_v2=True)
+    lines = v2[0]["target"]["reasoning"].split("\n")
+    assert lines[0].startswith("Facts: pos ") and lines[1:] == [BODY]
+    assert stats["headed"] == 1
+    again, stats = add_fact_headers(v2, facts_v2=True)
+    assert again == v2 and stats["headed"] == 0

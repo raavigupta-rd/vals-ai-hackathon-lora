@@ -44,6 +44,8 @@ from .completions import (
     with_preset,
 )
 from .ev import label_ev
+from .engine import ScriptedPlayer
+from .engine.scripted import ARCHETYPES
 from .game import play_session
 from .grading import GRADER_REVISION, GradingError, bounded, check_grader_params, failure_score, grade_log
 from .labels import label_folds
@@ -194,6 +196,20 @@ def _bounded(log: dict[str, Any]) -> dict[str, Any]:
     return trimmed
 
 
+def _opponent_bots(params: dict[str, Any], seats: int, policy: set[int]) -> dict[int, str]:
+    """`env_params.opponent_bots`: one archetype per non-policy seat, in seat order. Empty when the key is absent."""
+    names = params.get("opponent_bots")
+    if not names:
+        return {}
+    others = [i for i in range(seats) if i not in policy]
+    if not isinstance(names, list) or len(names) != len(others):
+        raise ValueError(f"opponent_bots needs {len(others)} archetypes (one per non-policy seat), got {names!r}")
+    unknown = [n for n in names if n not in ARCHETYPES]
+    if unknown:
+        raise ValueError(f"unknown opponent_bots archetype {unknown[0]!r}; choose from {', '.join(ARCHETYPES)}")
+    return dict(zip(others, names, strict=True))
+
+
 def create_app(
     relay_transport: httpx.AsyncBaseTransport | None = None,
     runs_dir: Path | None = None,
@@ -235,7 +251,8 @@ def create_app(
         try:
             seats = int(params.get("seats", 10))
             policy = {int(i) for i in params.get("policy_seats", range(seats))}
-            if params.get("opponent_model") and not opponent_key and len(policy) < seats:
+            bots = _opponent_bots(params, seats, policy)
+            if params.get("opponent_model") and not bots and not opponent_key and len(policy) < seats:
                 raise RuntimeError("opponent seats need POKER_OPPONENT_API_KEY or AC2_API_KEY in the harness environment")
             decision_timeout = float(params.get("decision_timeout_seconds", DEFAULT_DECISION_TIMEOUT_SECONDS))
             opponent_timeout = float(params.get("opponent_timeout_seconds", decision_timeout))
@@ -261,7 +278,7 @@ def create_app(
                     if params.get("opponent_model")
                     else policy_cleanup
                 )
-                players = [
+                players: list[Any] = [
                     ModelSeat(
                         f"seat{i}",
                         policy_complete if i in policy else opponent_complete,
@@ -272,6 +289,8 @@ def create_app(
                     )
                     for i in range(seats)
                 ]
+                for i, kind in bots.items():  # scripted seats never call a model
+                    players[i] = ScriptedPlayer(f"seat{i}", kind, int(params["seed"]) * 1009 + i)
                 rollout.policy_seats = [f"seat{i}" for i in sorted(policy)]
                 rollout.log = await play_session(rollout.id, int(params["seed"]), players, rollout.rules)
                 label_folds(rollout.log, set(rollout.policy_seats))

@@ -2,6 +2,8 @@
 __pycache__/
 *.pyc
 .env
-data/
+data/*
+!data/synth_ioi/
 .cache/
 runs/
+data/synth_ioi/.build_rw/

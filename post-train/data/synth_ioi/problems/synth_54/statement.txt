@@ -1,0 +1,30 @@
+CATAPULT EXPRESS
+
+Along a canyon stand N forts numbered 1 to N. There are M courier catapults: catapult i is stationed at fort U_i and can hurl a message capsule directly to ANY single fort x satisfying L_i <= x <= R_i in W_i minutes.
+
+Find the minimum time in minutes for a message starting at fort 1 to reach every fort 1, 2, ..., N (or -1 if a fort is unreachable).
+
+Input
+The first line contains N and M.
+Each of the next M lines contains U_i, L_i, R_i, and W_i.
+
+Output
+Print N space-separated integers on a single line: the minimum travel time from fort 1 to forts 1, 2, ..., N (or -1 if unreachable).
+
+Constraints
+1 <= N, M <= 150000
+1 <= U_i <= N
+1 <= L_i <= R_i <= N
+1 <= W_i <= 10^8
+
+Sample input 1 (file sample_1.in)
+5 4
+1 2 3 5
+3 4 5 4
+2 5 5 2
+5 1 1 10
+
+Sample output 1 (file sample_1.out)
+0 5 5 9 7
+
+Limits: 2 seconds and 1024 MiB of memory per test.

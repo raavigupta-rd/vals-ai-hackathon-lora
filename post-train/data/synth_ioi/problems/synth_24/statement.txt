@@ -1,0 +1,33 @@
+ARCHIVE PATTERNS
+
+A royal chronicle is recorded as a string T of lowercase English letters. Scholars submit Q search words P_1, P_2, ..., P_Q (not necessarily distinct). For each word P_i, count how many positions in T match P_i as a contiguous substring (overlapping occurrences are counted separately).
+
+Input
+The first line contains the string T.
+The second line contains Q.
+Each of the next Q lines contains a non-empty string P_i of lowercase English letters.
+The sum of lengths of all P_i does not exceed 250000.
+
+Output
+Print Q lines: on line i print the number of occurrences of P_i in T.
+
+Constraints
+1 <= |T| <= 200000
+1 <= Q <= 150000
+1 <= |P_i| <= |T|, sum of |P_i| <= 250000
+
+Sample input 1 (file sample_1.in)
+ababa
+4
+a
+aba
+ab
+bb
+
+Sample output 1 (file sample_1.out)
+3
+2
+2
+0
+
+Limits: 2 seconds and 1024 MiB of memory per test.

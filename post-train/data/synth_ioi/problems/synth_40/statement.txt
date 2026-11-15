@@ -1,0 +1,41 @@
+TOKEN DUEL
+
+A dungeon has N chambers numbered 1 to N and M one-way tunnels forming a directed acyclic graph (if a tunnel goes from U to V, U != V and there are no directed cycles; parallel tunnels between the same U and V may exist and count as distinct moves).
+
+You evaluate Q independent two-player games. Game i starts with K_i indistinguishable tokens placed at chambers P_1, ..., P_{K_i} (multiple tokens may occupy the same chamber; each of the K_i tokens is treated as a separate piece, so moving token a from U along a tunnel and moving token b from U along the same tunnel are counted as distinct opening moves).
+
+Players First and Second alternate turns, with First moving first. On a turn, a player chooses ONE of the K_i tokens and slides it along ONE outgoing tunnel from its current chamber; a player with no legal move loses.
+
+Under optimal play, determine who wins AND, if First wins, count how many distinct legal opening moves leave Second in a losing position (if Second wins, that count is 0).
+
+Input
+The first line contains N, M, and Q.
+Each of the next M lines contains U_j and V_j representing a one-way tunnel from U_j to V_j.
+Each of the next Q lines begins with K_i followed by P_1 ... P_{K_i}.
+The sum of K_i over all games does not exceed 250000.
+
+Output
+For each game print either "FIRST W" (where W >= 1 is the number of winning opening moves) or "SECOND 0" on its own line.
+
+Constraints
+2 <= N <= 180000
+1 <= M <= 220000
+1 <= Q <= 120000
+1 <= K_i <= 250000, sum of K_i <= 250000
+
+Sample input 1 (file sample_1.in)
+4 4 3
+1 2
+1 3
+2 4
+3 4
+1 1
+2 2 3
+2 1 2
+
+Sample output 1 (file sample_1.out)
+SECOND 0
+SECOND 0
+FIRST 3
+
+Limits: 2 seconds and 1024 MiB of memory per test.

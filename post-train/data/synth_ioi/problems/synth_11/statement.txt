@@ -1,0 +1,33 @@
+GUILD PORTALS
+
+A realm has N cities numbered 1 to N, M bidirectional roads, and G mage guilds. Road i connects U_i and V_i with travel time W_i. Guild j operates portals in K_j distinct cities; a traveller at any city belonging to guild j may teleport directly to ANY other city belonging to guild j in time C_j.
+
+Find the minimum travel time from city 1 to every city 1, 2, ..., N (or -1 if a city cannot be reached).
+
+Input
+The first line contains N, M, and G.
+Each of the next M lines contains U_i, V_i, and W_i.
+Each of the next G lines begins with K_j and C_j, followed by the K_j city numbers in guild j.
+The sum of K_j over all guilds does not exceed 250000.
+
+Output
+Print N space-separated integers on a single line: the minimum travel time from city 1 to cities 1, 2, ..., N (or -1 if unreachable).
+
+Constraints
+2 <= N <= 180000
+0 <= M <= 180000
+0 <= G <= 100000
+2 <= K_j <= N, sum of K_j <= 250000
+1 <= W_i, C_j <= 10^8
+
+Sample input 1 (file sample_1.in)
+5 2 2
+1 2 10
+4 5 3
+3 4 1 3 4
+2 20 2 5
+
+Sample output 1 (file sample_1.out)
+0 10 4 4 7
+
+Limits: 2 seconds and 1024 MiB of memory per test.

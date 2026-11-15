@@ -1,0 +1,32 @@
+ORCHARD HARVEST
+
+N crates of apples sit in a row numbered 1 to N, where crate i weighs A_i kilograms. You are asked Q grading queries: each query specifies L, R, and X, and asks for the sum of weights of all crates i in the range L <= i <= R satisfying A_i <= X.
+
+Input
+The first line contains N and Q.
+The second line contains A_1 ... A_N.
+Each of the next Q lines contains L, R, and X.
+
+Output
+For each query print the total qualifying weight on its own line.
+
+Constraints
+1 <= N, Q <= 200000
+1 <= A_i, X <= 10^9
+1 <= L <= R <= N
+
+Sample input 1 (file sample_1.in)
+5 4
+8 3 10 2 5
+1 5 5
+1 3 8
+2 4 2
+3 5 1
+
+Sample output 1 (file sample_1.out)
+10
+11
+2
+0
+
+Limits: 2 seconds and 1024 MiB of memory per test.

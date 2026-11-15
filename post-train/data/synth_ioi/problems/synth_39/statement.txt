@@ -1,0 +1,32 @@
+GUILD TRIBUTES
+
+A street of N guildhalls is numbered 1 to N, where guildhall i belongs to trade tier A_i. For a contiguous block of guildhalls [L, R], if tier x appears f(x) times among A_L, A_{L+1}, ..., A_R, that tier pays f(x)^2 * x gold in tribute.
+
+Given Q queries [L, R], compute the total tribute summed over all tiers present in [L, R].
+
+Input
+The first line contains N and Q.
+The second line contains A_1 ... A_N.
+Each of the next Q lines contains L and R.
+
+Output
+For each query print the total tribute on its own line.
+
+Constraints
+1 <= N, Q <= 180000
+1 <= A_i <= 1000000
+1 <= L <= R <= N
+
+Sample input 1 (file sample_1.in)
+6 3
+1 2 1 3 2 1
+1 4
+2 6
+1 6
+
+Sample output 1 (file sample_1.out)
+9
+15
+20
+
+Limits: 2 seconds and 1024 MiB of memory per test.

@@ -1,0 +1,35 @@
+CANAL SLUICES
+
+Along a canal stand N sluice gates numbered 1 to N, where gate i initially has capacity H_i. Process Q operations of two types:
+- 1 P X: set the capacity of gate P to X.
+- 2 L V: find the smallest gate index i such that i >= L and H_i >= V, or report -1 if no such gate exists.
+
+Input
+The first line contains N and Q.
+The second line contains H_1 ... H_N.
+Each of the next Q lines describes an operation in one of the two formats above. At least one operation is of type 2.
+
+Output
+For each operation of type 2, print the smallest valid index i (or -1) on its own line.
+
+Constraints
+1 <= N, Q <= 200000
+1 <= H_i, X, V <= 10^9
+1 <= P, L <= N
+
+Sample input 1 (file sample_1.in)
+6 5
+3 7 2 9 5 8
+2 1 6
+2 3 6
+1 4 4
+2 3 6
+2 5 10
+
+Sample output 1 (file sample_1.out)
+2
+4
+6
+-1
+
+Limits: 2 seconds and 1024 MiB of memory per test.

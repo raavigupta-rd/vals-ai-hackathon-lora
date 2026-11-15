@@ -27,6 +27,7 @@ BUST_RULES = ("allin_call", "own_shove")  # mistakes that bust us: placement dro
 BUST_WEIGHT = 3.0
 TEMPLATE_WEIGHT = 1.0  # fixed-sentence fallback: cycle 1 showed these get memorized, so they count less
 AGREE_WEIGHT = 1.0
+SIMPLE_EXPLOITS = ("big_price_fold", "raise_first_in", "one_pair_pot_cap", "monster_value")  # teacher v6 tier 1
 ABSTAIN_WEIGHT = 1.0
 
 
@@ -101,6 +102,22 @@ def correction_reasoning(verdict: dict, hand_code: str) -> str:
                 f"huge pot before the flop. Raise to {verdict['target_amount']}.")
     if rule == "free_fold":
         return "Checking costs nothing, so folding can only lose. Check."
+    if rule == "big_price_fold":
+        return ("This is a big price before the flop. Only the strongest hands can continue against this much "
+                "pressure; this hand is not one of them. Fold.")
+    if rule == "raise_first_in":
+        if preferred == "fold":
+            return ("It is folded to me in an early seat. Limping with this hand loses chips over time. Fold.")
+        return ("It is folded to me in a stealing position. A small raise wins the blinds often and is better than "
+                f"limping or folding. Raise to {verdict['target_amount']}.")
+    if rule == "one_pair_pot_cap":
+        action = "Check" if preferred == "check" else "Fold"
+        return f"One pair is not strong enough to play a big pot; this bet or raise shows a strong range. {action}."
+    if rule == "monster_value":
+        if preferred == "call":
+            return "I have a very strong hand. I should not fold to a normal-size bet. Call."
+        return ("I have a very strong hand. I should not give the opponent a free card or fold for a normal-size bet; "
+                "bet about two thirds of the pot for value.")
     raise ValueError(f"no correction text for rule {rule!r}")
 
 
@@ -108,6 +125,19 @@ def _correction_args(verdict: dict, record: dict) -> dict | None:
     preferred = verdict["preferred"]
     if preferred in ("fold", "check", "call"):
         return {"action": preferred}
+    if verdict["rule"] in ("raise_first_in", "monster_value"):
+        state = parse_prompt(record["messages"])
+        if not state or state["raise_min"] is None:
+            return None
+        if verdict["rule"] == "raise_first_in":
+            if state["raise_type"] != "raise":
+                return None
+            target, action = verdict["target_amount"], "raise"
+        else:
+            if state["raise_type"] != "bet":
+                return None
+            target, action = round(verdict["target_frac"] * state["pot"]), "bet"
+        return {"action": action, "amount": int(min(max(state["raise_min"], target), state["raise_max"]))}
     if verdict["rule"] == "oversize":
         state = parse_prompt(record["messages"])
         if not state or state["raise_min"] is None or state["raise_type"] != "raise":
@@ -330,6 +360,9 @@ def main() -> None:
     parser.add_argument("--cleanup-deployment", default="infer_d3d2b6b92171",
                         help="whose cleanup replies to use as anchors (base answers 98.5% correctly)")
     parser.add_argument("--rules", help="comma list of teacher rules whose corrections to keep (ablations); others become anchors")
+    parser.add_argument("--simple", action="store_true",
+                        help="v6 tier-1 rules only: big_price_fold, raise_first_in, one_pair_pot_cap, monster_value, "
+                             "free_fold; every older rule becomes an anchor (overrides --rules and --exploits)")
     parser.add_argument("--keep-say", action="store_true", help="keep the table-talk 'say' argument in targets (default: removed)")
     parser.add_argument("--weight-scale", type=float, default=1.0, help="multiply every weight (newer cycles weigh more)")
     parser.add_argument("--resampled", type=Path, help="poker/sft/resample.py output: own-words corrections")
@@ -345,7 +378,13 @@ def main() -> None:
             item = json.loads(line)
             if item.get("reply"):
                 resampled[item["span_id"]] = item["reply"] | {"preferred": item.get("preferred")}
-    if args.exploits:
+    rules = tuple(args.rules.split(",")) if args.rules else None
+    if args.simple:
+        import poker.teacher as teacher
+
+        teacher.EXPLOITS = set(SIMPLE_EXPLOITS)
+        rules = SIMPLE_EXPLOITS + ("free_fold",)
+    elif args.exploits:
         import poker.teacher as teacher
 
         teacher.EXPLOITS = {x for x in args.exploits.split(",") if x}
@@ -365,7 +404,7 @@ def main() -> None:
         rows.append((record, verdict, hand_code([row[0], row[1]]) if row else "this hand"))
     records, stats = select(rows, cycle=args.cycle, abstain_ratio=args.abstain_ratio, resampled=resampled,
                             template_weight=args.template_weight, weight_scale=args.weight_scale,
-                            rules=tuple(args.rules.split(",")) if args.rules else None,
+                            rules=rules,
                             strip_say=not args.keep_say)
     if args.cleanup_ratio > 0:
         cleanups = [json.loads(line) for line in args.joined.open(encoding="utf-8")]

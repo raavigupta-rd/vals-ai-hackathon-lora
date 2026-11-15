@@ -340,3 +340,93 @@ def test_critic_weights_multiply_and_zero_drops():
 def test_critic_weights_reject_negative_weights():
     with pytest.raises(ValueError):
         apply_critic_weights([{"decision_id": "a", "weight": 1.0}], {"a": -1})
+
+
+# ---- teacher v6 tier-1 rules ----
+
+def test_v6_correction_texts_are_plain_poker():
+    texts = {
+        "big_price_fold": ({"rule": "big_price_fold", "preferred": "fold"},
+                           "This is a big price before the flop. Only the strongest hands can continue against this "
+                           "much pressure; this hand is not one of them. Fold."),
+        "raise_first_in": ({"rule": "raise_first_in", "preferred": "raise", "target_amount": 5},
+                           "It is folded to me in a stealing position. A small raise wins the blinds often and is "
+                           "better than limping or folding. Raise to 5."),
+    }
+    for rule, (verdict, text) in texts.items():
+        assert correction_reasoning(verdict, "A5s") == text
+    pair = correction_reasoning({"rule": "one_pair_pot_cap", "preferred": "fold"}, "KQ")
+    assert pair.startswith("One pair is not strong enough to play a big pot") and pair.endswith("Fold.")
+    check = correction_reasoning({"rule": "one_pair_pot_cap", "preferred": "check"}, "KQ")
+    assert check.endswith("Check.")
+    bet = correction_reasoning({"rule": "monster_value", "preferred": "bet"}, "KK")
+    assert bet == ("I have a very strong hand. I should not give the opponent a free card or fold for a normal-size "
+                   "bet; bet about two thirds of the pot for value.")
+    call = correction_reasoning({"rule": "monster_value", "preferred": "call"}, "KK")
+    assert call.endswith("Call.") and "fold" in call.lower()
+    fold = correction_reasoning({"rule": "raise_first_in", "preferred": "fold"}, "72o")
+    assert fold.endswith("Fold.")
+    for t in (pair, check, bet, call, fold, *[v[1] for v in texts.values()]):
+        assert not any(w in t.lower() for w in ("data", "field", "statistic", "team", "sample", "percent"))
+
+
+def test_v6_correction_args_use_legal_bounds():
+    rfi = {"rule": "raise_first_in", "preferred": "raise", "target_amount": 5}
+    assert _correction_args(rfi, _prompt("preflop", 3, "fold, call 2, raise to 4-200")) == {"action": "raise", "amount": 5}
+    assert _correction_args(rfi, _prompt("preflop", 3, "fold, call 2, raise to 6-200")) == {"action": "raise", "amount": 6}
+    assert _correction_args(rfi, _prompt("preflop", 3, "fold, call 2, raise to 3-4")) == {"action": "raise", "amount": 4}
+    assert _correction_args(rfi, _prompt("preflop", 3, "fold, call 2")) is None
+    assert _correction_args({"rule": "raise_first_in", "preferred": "fold"}, {}) == {"action": "fold"}
+    assert _correction_args({"rule": "big_price_fold", "preferred": "fold"}, {}) == {"action": "fold"}
+    assert _correction_args({"rule": "one_pair_pot_cap", "preferred": "check"}, {}) == {"action": "check"}
+    mv = {"rule": "monster_value", "preferred": "bet", "target_frac": 0.6}
+    assert _correction_args(mv, _prompt("flop", 30, "check, bet to 2-100", board="Ks 9d 4h")) == {"action": "bet", "amount": 18}
+    assert _correction_args(mv, _prompt("flop", 2, "check, bet to 2-100", board="Ks 9d 4h")) == {"action": "bet", "amount": 2}
+    assert _correction_args(mv, _prompt("flop", 300, "check, bet to 2-100", board="Ks 9d 4h")) == {"action": "bet", "amount": 100}
+    assert _correction_args(mv, _prompt("flop", 30, "fold, call 5, raise to 10-100", board="Ks 9d 4h")) is None
+    assert _correction_args({"rule": "monster_value", "preferred": "call"}, {}) == {"action": "call"}
+
+
+def test_simple_flag_enables_exactly_the_v6_rules(monkeypatch, tmp_path):
+    import sys
+
+    from poker import teacher
+    from poker.sft import make_records
+
+    seen = {}
+    monkeypatch.setattr(make_records, "select", lambda rows, **kw: seen.update(kw) or ([], {}))
+    monkeypatch.setattr(teacher, "EXPLOITS", set())
+    p = tmp_path / "j.jsonl"
+    p.write_text("")
+    base = ["x", "--joined", str(p), "--db", str(tmp_path / "a.db"), "--cycle", "1", "--out", str(tmp_path / "o.jsonl")]
+    monkeypatch.setattr(sys, "argv", base + ["--simple", "--rules", "allin_call", "--exploits", "steal"])
+    make_records.main()
+    assert set(seen["rules"]) == {"big_price_fold", "raise_first_in", "one_pair_pot_cap", "monster_value", "free_fold"}
+    assert teacher.EXPLOITS == {"big_price_fold", "raise_first_in", "one_pair_pot_cap", "monster_value"}
+    monkeypatch.setattr(sys, "argv", base)
+    make_records.main()
+    assert seen["rules"] is None
+
+
+def test_v6_rules_are_selectable_with_exploits(monkeypatch, tmp_path):
+    import sys
+
+    from poker import teacher
+    from poker.sft import make_records
+
+    monkeypatch.setattr(teacher, "EXPLOITS", set())
+    p = tmp_path / "j.jsonl"
+    p.write_text("")
+    monkeypatch.setattr(sys, "argv", ["x", "--joined", str(p), "--db", str(tmp_path / "a.db"), "--cycle", "1",
+                                      "--out", str(tmp_path / "o.jsonl"), "--exploits", "monster_value,raise_first_in"])
+    make_records.main()
+    assert teacher.EXPLOITS == {"monster_value", "raise_first_in"}
+
+
+def test_v6_corrections_flow_through_select():
+    verdict = {"rule": "big_price_fold", "preferred": "fold", "agree": False}
+    rows = [(joined("d1", "call"), verdict, "72o")]
+    records, stats = select(rows, cycle=1, template_weight=1.0)
+    assert stats["corrections"] == 1 and records[0]["target"]["tool_call"]["arguments"] == {"action": "fold"}
+    recs, st = select(rows, cycle=1, template_weight=1.0, rules=("raise_first_in",))
+    assert st["corrections"] == 0 and st["out_of_scope"] == 1

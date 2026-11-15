@@ -549,15 +549,22 @@ def judge(con, match_id: str, hand: int, seat: int, action_index: int) -> dict:
         return v
     if "stab" in EXPLOITS and (v := _stab(con, rows, row, verdict, match_id, hand, seat)):
         return v
+    if row["street"] in BOARD_CARDS and (v := _v6_postflop(con, rows, row, verdict, match_id, hand, seat)):
+        return v
     if row["street"] in BOARD_CARDS and row["to_call"] > 0 and actual in ("call", "fold"):
         return _judge_postflop(con, rows, row, verdict, match_id, hand, seat)
     if row["street"] != "preflop" or not row["hand_code"]:
         return verdict
     before = [r for r in rows if r["idx"] < row["idx"]]
     raises = [r for r in before if r["street"] == "preflop" and r["action"] in ("raise", "bet")]
+    stack0 = row["stack_after"] - (row["chip_change"] or 0)
+    # v6 rules first: a junk hand facing a big price is a fold, not a smaller raise (oversize).
+    if "big_price_fold" in EXPLOITS and (v := _big_price_fold(row, stack0, verdict)):
+        return v
+    if "raise_first_in" in EXPLOITS and (v := _raise_first_in(row, before, raises, verdict)):
+        return v
     if "oversize" in EXPLOITS and (v := _oversize(row, before, raises, verdict)):
         return v
-    stack0 = row["stack_after"] - (row["chip_change"] or 0)
     if actual == "raise" and row["stack_after"] == 0 and not (raises and raises[-1]["stack_after"] == 0):
         preferred = open_shove_verdict(row["hand_code"], (row["effective_stack"] or stack0) / 2)
         agree = None if preferred is None else preferred == actual
@@ -716,6 +723,109 @@ def _oversize(row, before, raises, verdict) -> dict | None:
     if row["amount"] <= OVERSIZE_TOLERANCE * cap:
         return None
     return verdict | {"rule": "oversize", "preferred": "raise", "agree": False, "target_amount": max(cap, minimum)}
+
+
+# ---- teacher v6 tier-1 rules (each on only when named in EXPLOITS) ----
+BIG_PRICE_CHIPS, BIG_PRICE_STACK_FRAC, HUGE_PRICE_STACK_FRAC = 24, 0.20, 0.40
+BIG_PRICE_CONTINUE = {"AA", "KK", "QQ", "JJ", "TT", "AKs", "AKo", "AQs"}
+HUGE_PRICE_CONTINUE = {"AA", "KK", "QQ", "JJ", "AKs", "AKo"}
+FIRST_IN_RANGE = "22+ A2s+ A9o+ K9s+ KTo+ Q9s+ QTo+ J9s+ JTo T8s+ 98s 87s 76s 65s"
+FIRST_IN_SEATS = ("CO", "BTN", "SB")
+EARLY_OPEN_RANGE = "22+ ATs+ AJo+ KQs KQo"
+FIRST_IN_BASE = {"CO": 5, "BTN": 5, "SB": 6}
+FIRST_IN_PER_LIMPER, FIRST_IN_CAP, FIRST_IN_CAP_PREMIUM, FIRST_IN_MAX_RAISE = 2, 8, 10, 8
+MONSTER_BET_FRAC = 0.6
+POT_CAP_STACK_FRAC = 0.5
+
+
+def open_target(position: str, code: str, limpers: int) -> int:
+    """Standard raise-to for an unopened pot: 5 (6 from the SB) plus 2 per limper, capped at 8 (10 for AA/KK)."""
+    cap = FIRST_IN_CAP_PREMIUM if code in ("AA", "KK") else FIRST_IN_CAP
+    return min(FIRST_IN_BASE.get(position, 5) + FIRST_IN_PER_LIMPER * limpers, cap)
+
+
+def _big_price_fold(row, stack0, verdict) -> dict | None:
+    """Rule `big_price_fold`: a big price before the flop and we continue with a hand outside the strong set. Fold."""
+    to_call = row["to_call"] or 0
+    if row["street"] != "preflop" or to_call <= 0 or row["action"] not in ("call", "raise"):
+        return None
+    allin = bool(row["facing_allin"])
+    if not (to_call > BIG_PRICE_CHIPS or (stack0 and to_call > BIG_PRICE_STACK_FRAC * stack0) or allin):
+        return None
+    huge = allin or (stack0 and to_call > HUGE_PRICE_STACK_FRAC * stack0)
+    if row["hand_code"] in (HUGE_PRICE_CONTINUE if huge else BIG_PRICE_CONTINUE):
+        return None
+    return verdict | {"rule": "big_price_fold", "preferred": "fold", "agree": False}
+
+
+def _raise_first_in(row, before, raises, verdict) -> dict | None:
+    """Rule `raise_first_in`: unopened pot (limpers allowed). CO/BTN/SB hands in the steal range raise 5-8 instead of
+    folding, limping or oversizing; UTG/HJ never open-limp (fold, or raise to 5 with a good hand)."""
+    if raises or (row["to_call"] or 0) > 2 or row["position"] is None:
+        return None
+    code, action, position = row["hand_code"], row["action"], row["position"]
+    limpers = sum(1 for r in before if r["street"] == "preflop" and r["action"] == "call")
+    if position in FIRST_IN_SEATS and in_range(code, FIRST_IN_RANGE):
+        target = open_target(position, code, limpers)
+        if action in ("fold", "call"):
+            return verdict | {"rule": "raise_first_in", "preferred": "raise", "agree": False, "target_amount": target}
+        if (action == "raise" and row["amount"] and row["amount"] > FIRST_IN_MAX_RAISE and row["stack_after"] != 0
+                and code not in ("AA", "KK")):
+            return verdict | {"rule": "raise_first_in", "preferred": "raise", "agree": False, "target_amount": target}
+        return None
+    if position in ("UTG", "HJ") and action == "call":
+        if in_range(code, EARLY_OPEN_RANGE):
+            return verdict | {"rule": "raise_first_in", "preferred": "raise", "agree": False, "target_amount": 5}
+        return verdict | {"rule": "raise_first_in", "preferred": "fold", "agree": False}
+    return None
+
+
+def _is_monster(hole: list[str], board: list[str]) -> bool:
+    """A set (pocket pair), straight, flush, full house or better that uses a hole card. Two pair and trips made
+    with one hole card on a paired board are strong, not monsters."""
+    from pokerkit import Card, Label, StandardHighHand
+
+    if strength_class(hole, board) != "strong":
+        return False
+    mine = StandardHighHand.from_game(list(Card.parse("".join(hole))), list(Card.parse("".join(board))))
+    rank = _label_rank(mine.entry.label)
+    if rank < _label_rank(Label.THREE_OF_A_KIND):
+        return False
+    if rank == _label_rank(Label.THREE_OF_A_KIND):
+        return hole[0][0] == hole[1][0]
+    if len(board) == 5:  # the board alone may already make the hand
+        return mine > StandardHighHand.from_game([], list(Card.parse("".join(board))))
+    return True
+
+
+def _v6_postflop(con, rows, row, verdict, match_id, hand, seat) -> dict | None:
+    want_value, want_cap = "monster_value" in EXPLOITS, "one_pair_pot_cap" in EXPLOITS
+    if not (want_value or want_cap):
+        return None
+    action, to_call = row["action"], row["to_call"] or 0
+    hole, board = _hole(con, match_id, hand, seat), _board_for(con, match_id, hand, row["street"])
+    if not hole or not board:
+        return None
+    if want_value and (action == "fold" and to_call > 0 or action == "check" and to_call == 0) and _is_monster(hole, board):
+        if action == "fold":
+            if (row["facing_frac"] or 0) <= 1.0:
+                return verdict | {"rule": "monster_value", "preferred": "call", "agree": False}
+        else:
+            return verdict | {"rule": "monster_value", "preferred": "bet", "target_frac": MONSTER_BET_FRAC, "agree": False}
+        return None
+    if not want_cap or action not in ("call", "raise", "bet") or strength_class(hole, board) == "strong":
+        return None
+    stack0 = row["stack_after"] - (row["chip_change"] or 0)
+    own_bets = [r["idx"] for r in rows if r["idx"] < row["idx"] and r["street"] == row["street"]
+                and r["seat"] == seat and r["action"] in ("bet", "raise")]
+    was_raised = row["street"] in ("flop", "turn") and bool(own_bets) and any(
+        own_bets[0] < r["idx"] < row["idx"] and r["street"] == row["street"] and r["seat"] != seat
+        and r["action"] == "raise" for r in rows)
+    if action in ("call", "raise") and to_call > 0 and ((row["facing_frac"] or 0) > 1.0 or was_raised):
+        return verdict | {"rule": "one_pair_pot_cap", "preferred": "fold", "agree": False}
+    if action in ("bet", "raise") and stack0 and -(row["chip_change"] or 0) > POT_CAP_STACK_FRAC * stack0:
+        return verdict | {"rule": "one_pair_pot_cap", "preferred": "check" if to_call == 0 else "fold", "agree": False}
+    return None
 
 
 def agrees(verdict: dict, action: str, amount=None, *, min_amount=None) -> bool:

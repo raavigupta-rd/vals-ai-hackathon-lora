@@ -713,3 +713,231 @@ def test_river_air_fold_leaves_pairs_made_hands_folds_and_earlier_streets_alone(
     assert folded["rule"] != "river_air_fold"
     turn = judge(_street_db("turn", ["7h", "6s"], action="call"), "m_x", 1, seat=1, action_index=0)
     assert turn["rule"] != "river_air_fold"
+
+
+# ---- teacher v6 tier-1 rules: big_price_fold, raise_first_in, one_pair_pot_cap, monster_value; OFF unless named ----
+
+def _pre_db(position_seat, cards, action, amount=None, before=(), stack=200, nseats=4):
+    # blinds: seat 1 = SB (1), seat 2 = BB (2), button seat 0; 4 seats: BTN 0, SB 1, BB 2, CO 3;
+    # 6 seats: BTN 0, SB 1, BB 2, UTG 3, HJ 4, CO 5
+    acts = list(before)
+    last = acts[-1] if acts else None
+    pot = 3 + sum(-a["chip_change"] for a in acts)
+    to_call = (last["amount"] if last and last["action"] == "raise" else 2)
+    if position_seat == 1 and not any(a["action"] == "raise" for a in acts):
+        to_call = 1
+    change = 0 if action == "fold" else -(amount or to_call)
+    after = stack + change if not (action == "raise" and amount == stack) else 0
+    acts.append(_act(position_seat, action, amount, pot, to_call, change, after))
+    players = [{"seat": s, "hole_cards": cards if s == position_seat else ["2c", "3d"], "starting_stack": stack}
+               for s in range(nseats)]
+    hand = {"hand_number": 1, "button_seat": 0, "blinds": {"1": 1, "2": 2}, "players": players, "board": [],
+            "showdown": False, "shown": {}, "actions": acts}
+    return _xdb([hand], nseats=nseats)
+
+
+def _raise_act(seat, amount, stack=200):
+    return _act(seat, "raise", amount, 3, 2, -amount, stack - amount if amount < stack else 0)
+
+
+def _judge1(con, seat):
+    return judge(con, "m_x", 1, seat=seat, action_index=0)
+
+
+def test_v6_rules_are_off_by_default():
+    v = _judge1(_pre_db(0, ["7h", "2d"], "call", before=[_raise_act(3, 30)]), 0)
+    assert v["rule"] != "big_price_fold"
+    assert _judge1(_pre_db(0, ["Ah", "5h"], "fold"), 0)["rule"] != "raise_first_in"
+
+
+def test_big_price_fold_prefers_fold_for_weak_hands_facing_a_big_raise(exploits):
+    exploits("big_price_fold")
+    for action, amount in (("call", None), ("raise", 90)):
+        v = _judge1(_pre_db(0, ["7h", "2d"], action, amount, before=[_raise_act(3, 30)]), 0)
+        assert v["rule"] == "big_price_fold" and v["preferred"] == "fold" and v["agree"] is False, action
+    # 21 to call is above 20% of a 100 stack
+    v = _judge1(_pre_db(0, ["7h", "2d"], "call", before=[_raise_act(3, 21, 100)], stack=100), 0)
+    assert v["rule"] == "big_price_fold" and v["preferred"] == "fold"
+
+
+def test_big_price_fold_allows_the_continue_set_and_never_forces_calls(exploits):
+    exploits("big_price_fold")
+    for cards in (["Ah", "Ad"], ["Th", "Td"], ["Ah", "Qh"], ["Ah", "Kd"]):
+        v = _judge1(_pre_db(0, cards, "call", before=[_raise_act(3, 30)]), 0)
+        assert v["rule"] != "big_price_fold", cards
+    v = _judge1(_pre_db(0, ["Ah", "Ad"], "fold", before=[_raise_act(3, 30)]), 0)
+    assert v["rule"] != "big_price_fold" and v["preferred"] != "call"
+    v = _judge1(_pre_db(0, ["7h", "2d"], "fold", before=[_raise_act(3, 30)]), 0)
+    assert v["rule"] != "big_price_fold"
+
+
+def test_big_price_fold_is_tighter_against_all_ins_and_huge_prices(exploits):
+    exploits("big_price_fold")
+    shove = _raise_act(3, 200)
+    for cards in (["Th", "Td"], ["Ah", "Qh"]):  # TT and AQs are not enough against an all-in
+        v = _judge1(_pre_db(0, cards, "call", before=[shove]), 0)
+        assert v["rule"] == "big_price_fold" and v["preferred"] == "fold", cards
+    for cards in (["Qh", "Qd"], ["Jh", "Jd"], ["Ah", "Kh"], ["Ah", "Kd"]):
+        assert _judge1(_pre_db(0, cards, "call", before=[shove]), 0)["rule"] != "big_price_fold", cards
+    # 0.45 of the stack is above 0.40, so TT is out; 0.3 of the stack lets TT continue
+    big = _judge1(_pre_db(0, ["Th", "Td"], "call", before=[_raise_act(3, 90)]), 0)
+    assert big["rule"] == "big_price_fold" and big["preferred"] == "fold"
+    ok = _judge1(_pre_db(0, ["Th", "Td"], "call", before=[_raise_act(3, 60)]), 0)
+    assert ok["rule"] != "big_price_fold"
+
+
+def test_big_price_fold_ignores_small_prices(exploits):
+    exploits("big_price_fold")
+    v = _judge1(_pre_db(0, ["7h", "2d"], "call", before=[_raise_act(3, 8)]), 0)
+    assert v["rule"] != "big_price_fold"
+
+
+def test_open_target_sizes():
+    from poker.teacher import open_target
+
+    assert open_target("BTN", "A5s", 0) == 5 and open_target("CO", "A5s", 0) == 5
+    assert open_target("SB", "A5s", 0) == 6
+    assert open_target("BTN", "A5s", 1) == 7 and open_target("BTN", "A5s", 3) == 8
+    assert open_target("SB", "AKs", 2) == 8
+    assert open_target("BTN", "AA", 3) == 10 and open_target("BTN", "KK", 5) == 10
+
+
+def test_raise_first_in_prefers_a_sized_raise_for_folds_and_limps(exploits):
+    exploits("raise_first_in")
+    for seat, pos, size in ((0, "BTN", 5), (3, "CO", 5), (1, "SB", 6)):
+        for action in ("fold", "call"):
+            v = _judge1(_pre_db(seat, ["Ah", "5h"], action), seat)
+            assert (v["rule"], v["preferred"], v["agree"], v["target_amount"]) == ("raise_first_in", "raise", False, size), (pos, action)
+    limp = _judge1(_pre_db(0, ["Kh", "Qd"], "fold", before=[_act(3, "call", None, 3, 2, -2, 198)]), 0)
+    assert limp["preferred"] == "raise" and limp["target_amount"] == 7
+
+
+def test_raise_first_in_needs_range_late_seat_and_an_unopened_pot(exploits):
+    exploits("raise_first_in")
+    assert _judge1(_pre_db(0, ["7h", "2d"], "fold"), 0)["rule"] != "raise_first_in"
+    assert _judge1(_pre_db(2, ["Ah", "5h"], "check"), 2)["rule"] != "raise_first_in"  # big blind
+    assert _judge1(_pre_db(0, ["Ah", "5h"], "fold", before=[_raise_act(3, 6)]), 0)["rule"] != "raise_first_in"
+
+
+def test_raise_first_in_trims_oversized_opens(exploits):
+    exploits("raise_first_in")
+    v = _judge1(_pre_db(0, ["Kh", "Qd"], "raise", 12), 0)
+    assert v["rule"] == "raise_first_in" and v["preferred"] == "raise" and v["target_amount"] == 5 and v["agree"] is False
+    for cards, amount in ((["Kh", "Qd"], 8), (["Kh", "Kd"], 12), (["Kh", "Qd"], 200)):
+        assert _judge1(_pre_db(0, cards, "raise", amount), 0)["rule"] != "raise_first_in", (cards, amount)
+
+
+def test_raise_first_in_early_seats_never_open_limp(exploits):
+    exploits("raise_first_in")
+    weak = _judge1(_pre_db(3, ["7h", "2d"], "call", nseats=6), 3)  # UTG
+    assert weak["rule"] == "raise_first_in" and weak["preferred"] == "fold" and weak["agree"] is False
+    assert _judge1(_pre_db(3, ["Ah", "5h"], "call", nseats=6), 3)["preferred"] == "fold"
+    good = _judge1(_pre_db(4, ["Kh", "Qd"], "call", nseats=6), 4)  # HJ
+    assert good["preferred"] == "raise" and good["target_amount"] == 5
+    assert _judge1(_pre_db(3, ["7h", "2d"], "fold", nseats=6), 3)["rule"] != "raise_first_in"
+    assert _judge1(_pre_db(3, ["7h", "2d"], "raise", 6, nseats=6), 3)["rule"] != "raise_first_in"
+
+
+def _bet_db(our_cards, our_acts, street="flop", board=FLOP_BOARD, opp_acts=(), stack=200):
+    return _xdb([_phand(1, {0: ["5h", "6h"], 1: our_cards}, list(our_acts), board=board)])
+
+
+def test_one_pair_pot_cap_folds_pairs_and_air_facing_an_overbet(exploits):
+    exploits("one_pair_pot_cap")
+    for cards in (["Kh", "7d"], ["9h", "7d"], ["7h", "6s"], ["Ah", "Qd"]):
+        for street in ("flop", "river"):
+            v = _judge1(_street_db(street, cards, to_call=150, pot=250, action="call"), 1)
+            assert v["rule"] == "one_pair_pot_cap" and v["preferred"] == "fold" and v["agree"] is False, (cards, street)
+    ok = _judge1(_street_db("flop", ["Kh", "7d"], to_call=80, pot=180, action="call"), 1)  # 0.8 pot
+    assert ok["rule"] != "one_pair_pot_cap"
+    strong = _judge1(_street_db("flop", ["Kh", "Kd"], to_call=150, pot=250, action="call"), 1)
+    assert strong["rule"] != "one_pair_pot_cap"
+    folded = _judge1(_street_db("flop", ["Kh", "7d"], to_call=150, pot=250, action="fold"), 1)
+    assert folded["rule"] != "one_pair_pot_cap"
+
+
+def _raised_db(our_cards, street):
+    acts = [_pa(1, street, "bet", 20, 100, 0, -20, 180), _pa(0, street, "raise", 60, 120, 20, -60, 140),
+            _pa(1, street, "call", None, 180, 40, -40, 140)]
+    return _xdb([_phand(1, {0: ["5h", "6h"], 1: our_cards}, acts)])
+
+
+def test_one_pair_pot_cap_folds_one_pair_facing_a_raise_on_the_flop_or_turn(exploits):
+    exploits("one_pair_pot_cap")
+    for street in ("flop", "turn"):
+        v = judge(_raised_db(["Kh", "7d"], street), "m_x", 1, seat=1, action_index=1)
+        assert v["rule"] == "one_pair_pot_cap" and v["preferred"] == "fold", street
+    river = judge(_raised_db(["Kh", "7d"], "river"), "m_x", 1, seat=1, action_index=1)
+    assert river["rule"] != "one_pair_pot_cap"
+    strong = judge(_raised_db(["Kh", "Kd"], "flop"), "m_x", 1, seat=1, action_index=1)
+    assert strong["rule"] != "one_pair_pot_cap"
+
+
+def test_one_pair_pot_cap_blocks_huge_bets_and_raises_with_one_pair(exploits):
+    exploits("one_pair_pot_cap")
+    bet = _xdb([_phand(1, {0: ["5h", "6h"], 1: ["Kh", "7d"]}, [_pa(1, "flop", "bet", 120, 100, 0, -120, 80)])])
+    v = _judge1(bet, 1)
+    assert v["rule"] == "one_pair_pot_cap" and v["preferred"] == "check" and v["agree"] is False
+    small = _xdb([_phand(1, {0: ["5h", "6h"], 1: ["Kh", "7d"]}, [_pa(1, "flop", "bet", 40, 100, 0, -40, 160)])])
+    assert _judge1(small, 1)["rule"] != "one_pair_pot_cap"
+    river = _xdb([_phand(1, {0: ["5h", "6h"], 1: ["Kh", "7d"]}, [_pa(1, "river", "bet", 40, 100, 0, -40, 160)])])
+    assert _judge1(river, 1)["rule"] != "one_pair_pot_cap"
+    big_set = _xdb([_phand(1, {0: ["5h", "6h"], 1: ["Kh", "Kd"]}, [_pa(1, "flop", "bet", 120, 100, 0, -120, 80)])])
+    assert _judge1(big_set, 1)["rule"] != "one_pair_pot_cap"
+    facing = [_pa(0, "flop", "bet", 20, 80, 0, -20, 180), _pa(1, "flop", "raise", 150, 100, 20, -150, 50)]
+    con = _xdb([_phand(1, {0: ["5h", "6h"], 1: ["Kh", "7d"]}, facing)])
+    v = _judge1(con, 1)
+    assert v["rule"] == "one_pair_pot_cap" and v["preferred"] == "fold"
+
+
+def test_monster_value_is_off_by_default_and_needs_a_real_monster():
+    v = _judge1(_street_db("flop", ["Kh", "Kd"], to_call=80, pot=180), 1)
+    assert v["rule"] != "monster_value"
+
+
+def test_monster_value_calls_normal_bets_with_a_monster(exploits):
+    exploits("monster_value")
+    for cards in (["Kh", "Kd"],):
+        v = _judge1(_street_db("flop", cards, to_call=80, pot=180), 1)  # facing_frac 0.8
+        assert v["rule"] == "monster_value" and v["preferred"] == "call" and v["agree"] is False
+    straight = _judge1(_street_db("river", ["5h", "6h"], to_call=80, pot=180), 1)
+    assert straight["rule"] == "monster_value" and straight["preferred"] == "call"
+    over = _judge1(_street_db("flop", ["Kh", "Kd"], to_call=150, pot=250), 1)  # facing_frac 1.5
+    assert over["rule"] != "monster_value"
+    called = _judge1(_street_db("flop", ["Kh", "Kd"], to_call=80, pot=180, action="call"), 1)
+    assert called["rule"] != "monster_value"
+
+
+def test_monster_value_leaves_weak_two_pair_board_hands_and_trips_with_one_hole_card(exploits):
+    exploits("monster_value")
+    two_pair = _judge1(_street_db("flop", ["Kh", "9h"], to_call=80, pot=180), 1)
+    assert two_pair["rule"] != "monster_value"
+    trips = _judge1(_street_db("flop", ["Kh", "7d"], to_call=80, pot=180, board=PAIRED_BOARD), 1)
+    assert trips["rule"] != "monster_value"
+    board_straight = ("5s", "6d", "7h", "8c", "9d")
+    played = _judge1(_street_db("river", ["2h", "2d"], to_call=80, pot=180, board=board_straight), 1)
+    assert played["rule"] != "monster_value"
+    full = _judge1(_street_db("river", ["Kh", "9h"], to_call=80, pot=180, board=("Ks", "Kd", "9d", "2c", "3d")), 1)
+    assert full["rule"] == "monster_value"  # full house on K K 9
+
+
+def test_monster_value_bets_when_we_check_a_monster(exploits):
+    exploits("monster_value")
+    acts = [_pa(1, "flop", "check", None, 100, 0, 0, 200)]
+    v = _judge1(_xdb([_phand(1, {0: ["5h", "6h"], 1: ["Kh", "Kd"]}, acts)]), 1)
+    assert (v["rule"], v["preferred"], v["target_frac"], v["agree"]) == ("monster_value", "bet", 0.6, False)
+    weak = _judge1(_xdb([_phand(1, {0: ["5h", "6h"], 1: ["Kh", "9h"]}, acts)]), 1)
+    assert weak["rule"] != "monster_value"
+    air = _judge1(_xdb([_phand(1, {0: ["5h", "6h"], 1: ["7h", "8d"]}, acts)]), 1)
+    assert air["rule"] != "monster_value"
+
+
+def test_big_price_fold_wins_over_oversize_for_a_junk_raise(exploits):
+    exploits("oversize", "big_price_fold")
+    players = [{"seat": s, "hole_cards": ["7c", "2d"] if s == 3 else ["2c", "3d"], "starting_stack": 200} for s in range(4)]
+    acts = [_act(3, "raise", 6, 3, 2, -6, 194), _act(2, "raise", 40, 9, 4, -40, 160),
+            _act(3, "raise", 150, 49, 34, -144, 50)]  # oversized junk 4-bet facing a 34-chip price, not all-in
+    hand = {"hand_number": 1, "button_seat": 0, "blinds": {"1": 1, "2": 2}, "players": players, "board": [],
+            "showdown": False, "shown": {}, "actions": acts}
+    v = judge(_xdb([hand], nseats=4), "m_x", 1, seat=3, action_index=1)
+    assert v["rule"] == "big_price_fold" and v["preferred"] == "fold"

@@ -456,3 +456,88 @@ def test_rewrite_pads_flag_swaps_the_scratchpad_block(monkeypatch, tmp_path):
         outs[name] = [json.loads(line) for line in out.read_text().splitlines()]
     assert "mine" in outs["off"][0]["messages"][1]["content"]
     assert outs["on"][0]["messages"][1]["content"].count("H1/30 | me seat0") == 1
+
+
+# ---- pad_read: pad-dependent corrections, --rewrite-pads-strict ----
+
+PAD_READ = {"rule": "pad_read", "preferred": "fold", "agree": False, "raiser": 3}
+
+
+def test_select_pad_read_text_names_the_pad_only_for_rewritten_records():
+    rows = [(joined("a", "call"), PAD_READ, "TT"), (joined("b", "call"), PAD_READ, "TT")]
+    records, _ = select(rows, cycle=1, template_weight=1.0, pad_rewritten={"a"})
+    text = {r["decision_id"]: r["target"]["reasoning"] for r in records}
+    assert "scratchpad" in text["a"].lower() and "scratchpad" not in text["b"].lower()
+    records, _ = select(rows, cycle=1, template_weight=1.0)  # no rewrite at all
+    assert all("scratchpad" not in r["target"]["reasoning"].lower() for r in records)
+
+
+def _strict_setup(monkeypatch, tmp_path, extra):
+    import sys
+
+    from poker import teacher
+    from poker.sft import make_records
+    from tests.test_pad_rewrite import cleanup as pad_cleanup
+
+    def action(span, hand):
+        rec = joined(span) | {"match": {"match_id": "m", "hand": hand, "seat": 0, "action_index": 0, "verified": True}}
+        rec["messages"] = [{"role": "system", "content": "rules"},
+                           {"role": "user", "content": "## Your scratchpad (private: only you can see it)\n<<<SCRATCHPAD\nmine\nSCRATCHPAD>>>\n4/5000 characters. You can rewrite it after this hand."}]
+        return rec
+
+    p = tmp_path / "j.jsonl"
+    p.write_text("\n".join(json.dumps(r) for r in [pad_cleanup(hand=1), action("chained", 2), action("orphan", 9)]) + "\n")
+    monkeypatch.setattr(teacher, "EXPLOITS", set())  # restored after the test; main() reassigns it
+    monkeypatch.setattr(teacher, "PAD_INDEX", None)
+    monkeypatch.setattr(teacher, "judge", lambda *a, **k: PAD_READ | {"actual": "call"})
+    monkeypatch.setattr(teacher, "hand_code", lambda cards: "TT")
+    monkeypatch.setattr(make_records, "_correction_args", lambda verdict, record: {"action": "fold"})
+    base = ["x", "--joined", str(p), "--db", str(tmp_path / "a.db"), "--cycle", "1", "--cleanup-ratio", "0",
+            "--abstain-ratio", "0", "--template-weight", "1", "--out", str(tmp_path / "o.jsonl")]
+    monkeypatch.setattr(sys, "argv", base + extra)
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        make_records.main()
+    out = [json.loads(line) for line in (tmp_path / "o.jsonl").read_text().splitlines()]
+    return out, json.loads(buf.getvalue())
+
+
+def test_rewrite_pads_strict_drops_unrewritable_pad_read_records_and_reports_the_mix(monkeypatch, tmp_path):
+    out, stats = _strict_setup(monkeypatch, tmp_path, ["--rewrite-pads-strict", "--exploits", "pad_read"])
+    assert [r["decision_id"] for r in out] == ["chained"]
+    assert "scratchpad" in out[0]["target"]["reasoning"].lower()
+    mix = stats["pad_rewrite"]
+    assert mix["rewritten"] == 1 and mix["dropped_no_chain"] == 1 and mix["kept_no_chain"] == 0
+
+
+def test_rewrite_pads_alone_keeps_unrewritable_records_with_neutral_text(monkeypatch, tmp_path):
+    out, stats = _strict_setup(monkeypatch, tmp_path, ["--rewrite-pads", "--exploits", "pad_read"])
+    by_id = {r["decision_id"]: r for r in out}
+    assert set(by_id) == {"chained", "orphan"}
+    assert "scratchpad" in by_id["chained"]["target"]["reasoning"].lower()
+    assert "scratchpad" not in by_id["orphan"]["target"]["reasoning"].lower()
+    assert stats["pad_rewrite"]["kept_no_chain"] == 1 and stats["pad_rewrite"]["dropped_no_chain"] == 0
+
+
+def test_pad_read_loads_the_pad_index_into_the_teacher(monkeypatch, tmp_path):
+    from poker import teacher
+
+    _strict_setup(monkeypatch, tmp_path, ["--exploits", "pad_read"])
+    assert teacher.PAD_INDEX is not None and ("m", 0) in teacher.PAD_INDEX
+
+
+def test_exploits_help_lists_pad_read_but_simple_does_not(monkeypatch, capsys):
+    import sys
+
+    import pytest
+
+    from poker.sft import make_records
+
+    monkeypatch.setattr(sys, "argv", ["x", "--help"])
+    with pytest.raises(SystemExit):
+        make_records.main()
+    assert "pad_read" in capsys.readouterr().out
+    assert "pad_read" not in make_records.SIMPLE_EXPLOITS

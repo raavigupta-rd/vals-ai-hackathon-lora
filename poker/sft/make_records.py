@@ -53,7 +53,8 @@ def target_from_reply(record: dict) -> dict | None:
             "tool_call": {"name": "submit_action", "arguments": args}}
 
 
-def correction_reasoning(verdict: dict, hand_code: str) -> str:
+def correction_reasoning(verdict: dict, hand_code: str, pad_rewritten: bool = False) -> str:
+    """pad_rewritten: the record shows a rewritten teacher pad, so text may point at it (rule pad_read only)."""
     rule, preferred = verdict["rule"], verdict["preferred"]
     if rule == "allin_call":
         price = verdict["to_call"] / (verdict["pot"] + verdict["to_call"])
@@ -107,8 +108,12 @@ def correction_reasoning(verdict: dict, hand_code: str) -> str:
                 "pressure; this hand is not one of them. Fold.")
     if rule == "pad_read":
         if preferred == "call":
-            return ("My scratchpad shows this player shoves or raises big in a large share of their hands, so their "
-                    f"range is wide. {hand_code} is ahead of it at this price. Call.")
+            if not pad_rewritten:
+                return f"{hand_code} is ahead of a wide shoving range at this price. Call."
+            return ("My scratchpad shows this player plays most hands and raises often, so their range is wide. "
+                    f"{hand_code} is ahead of it at this price. Call.")
+        if not pad_rewritten:
+            return f"A big raise from a player who plays almost no hands is very strong. {hand_code} is not good enough. Fold."
         return ("My scratchpad shows this player plays almost no hands, so a big raise from them is very strong. "
                 f"{hand_code} is not good enough. Fold.")
     if rule == "raise_first_in":
@@ -170,8 +175,11 @@ def _correction_args(verdict: dict, record: dict) -> dict | None:
 
 def select(rows, *, cycle: int, abstain_ratio: float = 2.0, seed: int = 0, resampled: dict | None = None,
            template_weight: float = TEMPLATE_WEIGHT, weight_scale: float = 1.0, rules: tuple | None = None,
-           strip_say: bool = True):
+           strip_say: bool = True, pad_rewritten=frozenset()):
     """rows: (joined record, teacher verdict, hand code). Returns (records, stats).
+
+    pad_rewritten: span ids whose action prompt shows a rewritten teacher pad. Only those pad_read corrections may
+    cite the scratchpad in their text.
 
     strip_say removes the table-talk "say" argument from every target's tool call: the best arena teams never talk."""
     resampled = resampled or {}
@@ -214,7 +222,7 @@ def select(rows, *, cycle: int, abstain_ratio: float = 2.0, seed: int = 0, resam
             if args is None:
                 stats["skipped"] += 1
                 continue
-            target = {"reasoning": correction_reasoning(verdict, code), "content": "",
+            target = {"reasoning": correction_reasoning(verdict, code, record["span_id"] in pad_rewritten), "content": "",
                       "tool_call": {"name": "submit_action", "arguments": args}}
             records.append(base(record, "teacher_correction", template_weight, target))
             stats["corrections"] += 1
@@ -360,11 +368,12 @@ def main() -> None:
     parser.add_argument("--abstain-ratio", type=float, default=2.0)
     parser.add_argument("--template-weight", type=float, default=0.0,
                         help="weight of unvalidated fixed-sentence corrections; 0 drops them (default)")
-    parser.add_argument("--exploits", help="comma list of teacher v5 exploit rules to enable: river_fold,steal,stab,oversize,monster_call,river_air_fold")
+    parser.add_argument("--exploits", help="comma list of teacher v5 exploit rules to enable: river_fold,steal,stab,oversize,monster_call,river_air_fold,"
+                             "pad_read (needs the teacher pad chain from --joined; pair with --rewrite-pads-strict)")
     parser.add_argument("--cleanup-ratio", type=float, default=0.3,
                         help="cleanup-turn anchors per action record (keeps update_scratchpad working)")
     parser.add_argument("--cleanup-deployment", default="infer_d3d2b6b92171",
-                        help="whose cleanup replies to use as anchors (base answers 98.5% correctly)")
+                        help="whose cleanup replies to use as anchors (base answers 98.5%% correctly)")
     parser.add_argument("--rules", help="comma list of teacher rules whose corrections to keep (ablations); others become anchors")
     parser.add_argument("--simple", action="store_true",
                         help="v6 tier-1 rules only: big_price_fold, raise_first_in, one_pair_pot_cap, monster_value, "
@@ -372,6 +381,9 @@ def main() -> None:
     parser.add_argument("--rewrite-pads", action="store_true",
                         help="show each action turn the teacher pad the deterministic writer would have left at the start "
                              "of that hand (poker/pad/rewrite.py); records with no gap-free chain keep their block")
+    parser.add_argument("--rewrite-pads-strict", action="store_true",
+                        help="implies --rewrite-pads; also drops action records whose pad could not be rewritten when they "
+                             "carry a pad-dependent correction (rule pad_read), and reports rewritten/kept/dropped")
     parser.add_argument("--keep-say", action="store_true", help="keep the table-talk 'say' argument in targets (default: removed)")
     parser.add_argument("--weight-scale", type=float, default=1.0, help="multiply every weight (newer cycles weigh more)")
     parser.add_argument("--resampled", type=Path, help="poker/sft/resample.py output: own-words corrections")
@@ -397,6 +409,16 @@ def main() -> None:
         import poker.teacher as teacher
 
         teacher.EXPLOITS = {x for x in args.exploits.split(",") if x}
+    import poker.teacher as teacher
+
+    args.rewrite_pads = args.rewrite_pads or args.rewrite_pads_strict
+    index = None
+    if args.rewrite_pads or "pad_read" in teacher.EXPLOITS:
+        from poker.pad.rewrite import chain_index
+
+        index = chain_index(json.loads(line) for line in args.joined.open(encoding="utf-8"))
+        if "pad_read" in teacher.EXPLOITS:
+            teacher.PAD_INDEX = index  # pad_read reads the raiser's profile from the teacher pad at that hand
     con = db.connect(args.db)
     rows = []
     for line in args.joined.open(encoding="utf-8"):
@@ -411,16 +433,25 @@ def main() -> None:
                           (match["match_id"], match["hand"], match["seat"])).fetchone()
         from poker.teacher import hand_code
         rows.append((record, verdict, hand_code([row[0], row[1]]) if row else "this hand"))
+    matches = {}
+    for r, _, _ in rows:
+        m = r["match"]
+        matches[r["span_id"]] = (m.get("match_id"), m.get("seat"), m.get("hand"))
+    pad_rewritten = set()
+    if args.rewrite_pads:
+        from poker.pad.rewrite import teacher_pad_at
+
+        pad_rewritten = {span for span, key in matches.items()
+                         if None not in key and teacher_pad_at(index, key[0], key[1], key[2]) is not None}
     records, stats = select(rows, cycle=args.cycle, abstain_ratio=args.abstain_ratio, resampled=resampled,
                             template_weight=args.template_weight, weight_scale=args.weight_scale,
                             rules=rules,
-                            strip_say=not args.keep_say)
+                            strip_say=not args.keep_say, pad_rewritten=pad_rewritten)
     if args.rewrite_pads:
-        from poker.pad.rewrite import chain_index, rewrite_records
+        from poker.pad.rewrite import rewrite_records
 
-        matches = {r["span_id"]: (r["match"]["match_id"], r["match"]["seat"], r["match"]["hand"]) for r, _, _ in rows}
-        records, rewrite_stats = rewrite_records(
-            records, matches, chain_index(json.loads(line) for line in args.joined.open(encoding="utf-8")))
+        strict = {r["span_id"] for r, v, _ in rows if v.get("rule") == "pad_read"} if args.rewrite_pads_strict else set()
+        records, rewrite_stats = rewrite_records(records, matches, index, strict_ids=strict)
         stats["pad_rewrite"] = rewrite_stats
     if args.cleanup_ratio > 0:
         cleanups = [json.loads(line) for line in args.joined.open(encoding="utf-8")]

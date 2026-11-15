@@ -943,117 +943,119 @@ def test_big_price_fold_wins_over_oversize_for_a_junk_raise(exploits):
     assert v["rule"] == "big_price_fold" and v["preferred"] == "fold"
 
 
-# ---- pad_read: the raiser's observable profile from earlier hands of the same match; OFF unless named ----
+# ---- pad_read: the raiser's profile as the teacher pad at that hand shows it; OFF unless named ----
 
-def _hist(n, raiser_actions, cards=None, we=None, stack=200):
-    """Hand n, 4 seats. `raiser_actions` are seat-3 actions; `we` is an optional (seat, action, amount) for seat 0."""
-    acts = list(raiser_actions)
-    players = [{"seat": s, "hole_cards": (cards if s == 0 and cards else ["2c", "3d"]), "starting_stack": stack}
-               for s in range(4)]
-    if we:
-        seat, action, amount = we
-        to_call = acts[-1]["amount"] if acts else 2
-        change = 0 if action == "fold" else -(amount or to_call)
-        after = stack + change if not (amount and amount >= stack) else 0
-        acts.append(_act(seat, action, amount, 3 + (acts[-1]["amount"] if acts else 0), to_call, change, after))
-    return {"hand_number": n, "button_seat": 0, "blinds": {"1": 1, "2": 2}, "players": players, "board": [],
-            "showdown": False, "shown": {}, "actions": acts}
+def _pad_text(va, vb, raises, seat=3):
+    return (f"H9/30 | me seat0 200 | rank 1/4\nseat{seat}: 200 | VPIP {va}/{vb} | raises {raises} | showed: - | "
+            "talk-claims: 0 false\nplan: mid: tight value, fold marginal spots")
 
 
-def _r_fold(): return [_act(3, "fold", None, 3, 2, 0, 200)]
-def _r_call(): return [_act(3, "call", None, 3, 2, -2, 198)]
-def _r_big(amount=40): return [_raise_act(3, amount)]
+def _pad_db(cards, action, price=60, hand=9, extra_live=False):
+    """Hand `hand`, 4 seats: seats 1 and 2 fold (unless extra_live), seat 3 raises to `price`, we (seat 0) act."""
+    acts = [] if extra_live else [_act(1, "fold", None, 3, 2, 0, 200), _act(2, "fold", None, 3, 2, 0, 200)]
+    acts.append(_raise_act(3, price))
+    to_call = price
+    change = 0 if action == "fold" else -to_call
+    acts.append(_act(0, action, None, 3 + price, to_call, change, 200 + change))
+    players = [{"seat": s, "hole_cards": (cards if s == 0 else ["2c", "3d"]), "starting_stack": 200} for s in range(4)]
+    h = {"hand_number": hand, "button_seat": 0, "blinds": {"1": 1, "2": 2}, "players": players, "board": [],
+         "showdown": False, "shown": {}, "actions": acts}
+    return _xdb([h], nseats=4)
 
 
-def _pad_db(history, cards, action, price=60):
-    """`history`: raiser actions for hands 1..k; our decision is hand k+1, facing a raise to `price` from seat 3."""
-    hands = [_hist(i + 1, h) for i, h in enumerate(history)]
-    hands.append(_hist(len(history) + 1, _r_big(price), cards=cards, we=(0, action, None)))
-    return _xdb(hands, nseats=4), len(history) + 1
+def _pad_judge(monkeypatch, pad, cards, action, price=60, hand=9, **kw):
+    monkeypatch.setattr(_t, "PAD_INDEX", None if pad is None else {"_pads": {("m_x", 0): {hand: pad}}})
+    return judge(_pad_db(cards, action, price, hand, **kw), "m_x", hand, seat=0, action_index=0)
 
 
-def _pad_judge(history, cards, action, price=60):
-    con, n = _pad_db(history, cards, action, price)
-    return judge(con, "m_x", n, seat=0, action_index=0)
+WIDE = _pad_text(7, 9, 4)     # VPIP 78%, 4 raises, 9 hands
+TIGHT = _pad_text(1, 10, 1)   # VPIP 10%
 
 
-WIDE = [_r_big(), _r_fold(), _r_big(), _r_fold(), _r_big(), _r_fold(), _r_fold(), _r_fold()]
-TIGHT = [_r_fold()] * 9 + [_r_call()]
+def test_pad_read_is_off_by_default(monkeypatch):
+    assert _pad_judge(monkeypatch, WIDE, ["7h", "7d"], "fold")["rule"] != "pad_read"
 
 
-def test_pad_read_is_off_by_default():
-    assert _pad_judge(WIDE, ["7h", "7d"], "fold")["rule"] != "pad_read"
+def test_pad_read_abstains_without_a_pad_index_or_pad(exploits, monkeypatch):
+    exploits("pad_read")
+    assert _pad_judge(monkeypatch, None, ["7h", "7d"], "fold")["rule"] != "pad_read"  # PAD_INDEX unset
+    monkeypatch.setattr(_t, "PAD_INDEX", {"_pads": {("m_x", 0): {}}})                  # no pad for this hand
+    assert judge(_pad_db(["7h", "7d"], "fold"), "m_x", 9, seat=0, action_index=0)["rule"] != "pad_read"
+    assert _pad_judge(monkeypatch, "my own free text", ["7h", "7d"], "fold")["rule"] != "pad_read"  # not the schema
+    assert _pad_judge(monkeypatch, "", ["7h", "7d"], "fold")["rule"] != "pad_read"                   # hand 1: empty pad
+    assert _pad_judge(monkeypatch, _pad_text(7, 9, 4, seat=2), ["7h", "7d"], "fold")["rule"] != "pad_read"  # raiser not on pad
 
 
-def test_pad_read_wide_aggressor_prefers_call_with_the_widened_set(exploits):
+def test_pad_read_wide_aggressor_prefers_call_with_the_widened_set(exploits, monkeypatch):
     exploits("pad_read")
     for cards in (["7h", "7d"], ["Ah", "Th"], ["Ah", "Jd"], ["Kh", "Qh"]):
-        v = _pad_judge(WIDE, cards, "fold")
+        v = _pad_judge(monkeypatch, WIDE, cards, "fold")
         assert v["rule"] == "pad_read" and v["preferred"] == "call" and v["agree"] is False, cards
+        assert v["profile"] == {"hands": 9, "vpip": 7, "raises": 4}
     for cards in (["6h", "6d"], ["Ah", "Td"], ["Kh", "Qd"], ["9h", "8h"]):
-        assert _pad_judge(WIDE, cards, "fold")["rule"] != "pad_read", cards
+        assert _pad_judge(monkeypatch, WIDE, cards, "fold")["rule"] != "pad_read", cards
 
 
-def test_pad_read_wide_needs_six_hands_and_three_big_raises_in_the_last_eight(exploits):
+def test_pad_read_wide_thresholds_come_from_the_pad_counts(exploits, monkeypatch):
     exploits("pad_read")
-    assert _pad_judge(WIDE[:5], ["7h", "7d"], "fold")["rule"] != "pad_read"  # only 5 hands seen
-    two_big = [_r_big(), _r_fold(), _r_big(), _r_fold(), _r_fold(), _r_fold(), _r_fold(), _r_fold()]
-    assert _pad_judge(two_big, ["7h", "7d"], "fold")["rule"] != "pad_read"
-    # big raises older than the last 8 hands do not count
-    assert _pad_judge([_r_big()] * 3 + [_r_fold()] * 8, ["7h", "7d"], "fold")["rule"] != "pad_read"
-    assert _pad_judge([_r_fold()] * 3 + [_r_big()] * 3 + [_r_fold()] * 5, ["7h", "7d"], "fold")["rule"] == "pad_read"
+
+    def rule(va, vb, raises):
+        return _pad_judge(monkeypatch, _pad_text(va, vb, raises), ["7h", "7d"], "fold")["rule"]
+
+    assert rule(4, 6, 3) == "pad_read"      # 6 hands, 67%, 3 raises: all at the boundary
+    assert rule(4, 5, 5) != "pad_read"      # only 5 hands observed
+    assert rule(3, 6, 5) != "pad_read"      # VPIP 50% < 60%
+    assert rule(4, 6, 2) != "pad_read"      # only 2 raises
 
 
-def test_pad_read_shove_counts_as_big_and_small_raises_do_not(exploits):
+def test_pad_read_wide_respects_the_45_percent_price_cap(exploits, monkeypatch):
     exploits("pad_read")
-    shoves = [_r_big(200), _r_fold(), _r_big(200), _r_fold(), _r_big(200), _r_fold()]
-    assert _pad_judge(shoves, ["7h", "7d"], "fold", price=60)["preferred"] == "call"
-    small = [_r_big(10), _r_fold(), _r_big(10), _r_fold(), _r_big(10), _r_fold()]
-    assert _pad_judge(small, ["7h", "7d"], "fold")["rule"] != "pad_read"
+    assert _pad_judge(monkeypatch, WIDE, ["7h", "7d"], "fold", price=90)["rule"] == "pad_read"   # exactly 45%
+    assert _pad_judge(monkeypatch, WIDE, ["7h", "7d"], "fold", price=100)["rule"] != "pad_read"  # 50%
 
 
-def test_pad_read_wide_respects_the_45_percent_price_cap(exploits):
+def test_pad_read_needs_a_big_raise_or_shove(exploits, monkeypatch):
     exploits("pad_read")
-    assert _pad_judge(WIDE, ["7h", "7d"], "fold", price=90)["rule"] == "pad_read"      # exactly 45%
-    assert _pad_judge(WIDE, ["7h", "7d"], "fold", price=100)["rule"] != "pad_read"     # 50%
+    assert _pad_judge(monkeypatch, WIDE, ["7h", "7d"], "fold", price=20)["rule"] != "pad_read"  # not over 12 BB
+    assert _pad_judge(monkeypatch, WIDE, ["7h", "7d"], "fold", price=200)["rule"] != "pad_read"  # shove: 100% of stack
 
 
-def test_pad_read_does_not_force_folds_or_second_guess_calls_in_the_widened_set(exploits):
+def test_pad_read_does_not_force_folds_or_second_guess_calls_in_the_widened_set(exploits, monkeypatch):
     exploits("pad_read")
-    assert _pad_judge(WIDE, ["7h", "7d"], "call")["rule"] != "pad_read"
-    assert _pad_judge(WIDE, ["9h", "8h"], "call")["rule"] != "pad_read"
+    assert _pad_judge(monkeypatch, WIDE, ["7h", "7d"], "call")["rule"] != "pad_read"
+    assert _pad_judge(monkeypatch, WIDE, ["9h", "8h"], "call")["rule"] != "pad_read"
 
 
-def test_pad_read_tight_raiser_narrows_the_range(exploits):
+def test_pad_read_tight_raiser_narrows_the_range(exploits, monkeypatch):
     exploits("pad_read")
-    for cards in (["Th", "Td"], ["Ah", "Qs"], ["Ah", "Kd"], ["Jh", "Jd"]):
-        v = _pad_judge(TIGHT, cards, "call")
+    for cards in (["Th", "Td"], ["Ah", "Qs"], ["Jh", "Jd"]):
+        v = _pad_judge(monkeypatch, TIGHT, cards, "call")
         assert v["rule"] == "pad_read" and v["preferred"] == "fold" and v["agree"] is False, cards
-    for cards in (["Qh", "Qd"], ["Ah", "Ad"], ["Ah", "Kh"]):
-        assert _pad_judge(TIGHT, cards, "call")["rule"] != "pad_read", cards
-    assert _pad_judge(TIGHT, ["Th", "Td"], "fold")["rule"] != "pad_read"
-    played_two = [_r_fold()] * 8 + [_r_call(), _r_call()]
-    assert _pad_judge(played_two, ["Th", "Td"], "call")["rule"] != "pad_read"
-    assert _pad_judge(TIGHT[-5:], ["Th", "Td"], "call")["rule"] != "pad_read"  # too few hands to call them tight
+    for cards in (["Qh", "Qd"], ["Ah", "Ad"], ["Ah", "Kh"], ["Ah", "Kd"]):  # QQ+ AKs AKo stay
+        assert _pad_judge(monkeypatch, TIGHT, cards, "call")["rule"] != "pad_read", cards
+    assert _pad_judge(monkeypatch, TIGHT, ["Th", "Td"], "fold")["rule"] != "pad_read"
+    assert _pad_judge(monkeypatch, _pad_text(2, 10, 1), ["Th", "Td"], "call")["rule"] != "pad_read"  # 20% is not very tight
+    # 1/8 = 12.5% > 12%: not very tight; 1/9 = 11% is
+    assert _pad_judge(monkeypatch, _pad_text(1, 8, 1), ["Th", "Td"], "call")["rule"] != "pad_read"
+    assert _pad_judge(monkeypatch, _pad_text(1, 9, 1), ["Th", "Td"], "call")["rule"] == "pad_read"
+    assert _pad_judge(monkeypatch, _pad_text(0, 7, 0), ["Th", "Td"], "call")["rule"] != "pad_read"   # 7 hands only
+    assert _pad_judge(monkeypatch, _pad_text(0, 8, 0), ["Th", "Td"], "call")["rule"] == "pad_read"
 
 
-def test_pad_read_ignores_small_raises_and_uses_only_earlier_hands(exploits):
+def test_pad_read_is_heads_up_only(exploits, monkeypatch):
     exploits("pad_read")
-    assert _pad_judge(WIDE, ["7h", "7d"], "fold", price=20)["rule"] != "pad_read"  # not over 12 BB
-    # the current hand's own big raise must not count toward the profile
-    only_now = [_r_fold()] * 5 + [_r_big(), _r_big()]
-    con, n = _pad_db(only_now[:5] + [_r_big(), _r_big()], ["7h", "7d"], "fold")
-    assert judge(con, "m_x", n, seat=0, action_index=0)["rule"] != "pad_read"
+    v = _pad_judge(monkeypatch, WIDE, ["7h", "7d"], "fold", extra_live=True)  # seats 1 and 2 still live
+    assert v["rule"] != "pad_read"
+    assert _pad_judge(monkeypatch, TIGHT, ["Th", "Td"], "call", extra_live=True)["rule"] != "pad_read"
 
 
-def test_pad_read_runs_before_big_price_fold(exploits):
+def test_pad_read_runs_before_big_price_fold(exploits, monkeypatch):
     exploits("pad_read", "big_price_fold")
-    v = _pad_judge(WIDE, ["7h", "7d"], "fold")
-    assert v["rule"] == "pad_read"
-    v = _pad_judge(TIGHT, ["Th", "Td"], "call")
+    assert _pad_judge(monkeypatch, WIDE, ["7h", "7d"], "fold")["rule"] == "pad_read"
+    v = _pad_judge(monkeypatch, TIGHT, ["Th", "Td"], "call")
     assert v["rule"] == "pad_read" and v["preferred"] == "fold"
     # no profile: big_price_fold still applies
-    assert _pad_judge([], ["7h", "2d"], "call")["rule"] == "big_price_fold"
+    assert _pad_judge(monkeypatch, None, ["7h", "2d"], "call")["rule"] == "big_price_fold"
 
 
 def test_pad_read_correction_text_and_args():
@@ -1062,4 +1064,8 @@ def test_pad_read_correction_text_and_args():
     call = {"rule": "pad_read", "preferred": "call", "agree": False}
     fold = {"rule": "pad_read", "preferred": "fold", "agree": False}
     assert "Call" in correction_reasoning(call, "77") and "Fold" in correction_reasoning(fold, "TT")
+    for verdict in (call, fold):  # the text names the pad only when the record shows a rewritten teacher pad
+        assert "scratchpad" in correction_reasoning(verdict, "77", pad_rewritten=True).lower()
+        assert "scratchpad" not in correction_reasoning(verdict, "77").lower()
+        assert "scratchpad" not in correction_reasoning(verdict, "77", pad_rewritten=False).lower()
     assert _correction_args(call, {"messages": []}) == {"action": "call"}

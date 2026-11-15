@@ -1,6 +1,6 @@
 import json
 
-from poker.pad.rewrite import chain_index, rewrite_messages, rewrite_records, teacher_pad_at
+from poker.pad.rewrite import chain_index, rewrite_messages, rewrite_records, teacher_pad_at, truncated_chains
 
 CLEANUP = ("## Hand {h} is over\nStacks now: seat0 {s0}, seat1 200, seat2 200, seat3 200, seat4 200, seat5 200.\n"
            "Now call update_scratchpad exactly once")
@@ -76,4 +76,57 @@ def test_rewrite_records_counts_and_keeps_unchainable_ones():
     out, stats = rewrite_records([ok, no_chain, cleanup_rec], matches, index)
     assert out[0]["messages"][1]["content"].count("H1/30") == 1 and "my own notes" not in out[0]["messages"][1]["content"]
     assert out[1] == no_chain and out[2] == cleanup_rec
-    assert stats == {"action_records": 2, "rewritten": 1, "kept_no_chain": 1, "skipped_non_action": 1}
+    assert stats["action_records"] == 2 and stats["rewritten"] == 1 and stats["kept_no_chain"] == 1
+    assert stats["skipped_non_action"] == 1
+
+
+def test_strict_drops_unrewritten_pad_dependent_records_only():
+    index = chain_index([cleanup(hand=1)])
+    ok, no_chain, other = action_record(hand=2), action_record(hand=9), action_record(hand=9)
+    no_chain["decision_id"], other["decision_id"] = "n", "o"
+    matches = {"d": ("m", 0, 2), "n": ("m", 0, 9), "o": ("m", 0, 9)}
+    out, stats = rewrite_records([ok, no_chain, other], matches, index, strict_ids={"d", "n"})
+    assert [r["decision_id"] for r in out] == ["d", "o"]  # n: pad-dependent and unrewritable -> dropped
+    assert stats["rewritten"] == 1 and stats["kept_no_chain"] == 1 and stats["dropped_no_chain"] == 1
+    out, stats = rewrite_records([ok, no_chain, other], matches, index)  # strict off: nothing is dropped
+    assert len(out) == 3 and stats["dropped_no_chain"] == 0
+
+
+def test_incomplete_match_keys_are_skipped_and_counted():
+    index = chain_index([cleanup(hand=1)])
+    a, b = action_record(hand=2), action_record(hand=2)
+    b["decision_id"] = "b"
+    matches = {"d": ("m", 0, 2), "b": ("m", None, 2)}
+    out, stats = rewrite_records([a, b, action_record() | {"decision_id": "zz"}], matches, index)
+    assert len(out) == 3 and stats["rewritten"] == 1 and stats["kept_no_chain"] == 2
+    assert stats["incomplete_match"] == 1  # "b" has a key but a missing part; "zz" has no key at all
+
+
+def test_chain_index_skips_rows_with_incomplete_match_metadata():
+    row = cleanup(hand=1)
+    del row["match"]["match_id"]
+    index = chain_index([row, cleanup(hand=1) | {"match": None}])
+    assert teacher_pad_at(index, "m", 0, 2) is None
+    assert index["_meta"]["incomplete"] == 2
+
+
+def test_truncated_chains_are_reported_per_match():
+    bad = cleanup(hand=3)
+    bad["messages"] = bad["messages"][:2]  # unparseable cleanup in the middle
+    index = chain_index([cleanup(hand=1), cleanup(hand=2), bad, cleanup(hand=4), cleanup(match_id="ok", hand=1)])
+    assert truncated_chains(index) == {("m", 0): {"chain_end": 3, "last_hand": 4}}
+    out, stats = rewrite_records([action_record(hand=5)], {"d": ("m", 0, 5)}, index)
+    assert stats["truncated_chains"] == 1 and stats["unparseable_cleanups"] == 1
+    assert stats["truncated_matches"] == ["m"]
+
+
+def test_a_chain_with_a_gap_is_truncated_too():
+    index = chain_index([cleanup(hand=1), cleanup(hand=3)])
+    assert truncated_chains(index) == {("m", 0): {"chain_end": 2, "last_hand": 3}}
+
+
+def test_rendered_pads_over_the_limit_are_refused():
+    import pytest
+    with pytest.raises(AssertionError):
+        rewrite_messages(action_record()["messages"], "x" * 5001)
+    rewrite_messages(action_record()["messages"], "x" * 5000)

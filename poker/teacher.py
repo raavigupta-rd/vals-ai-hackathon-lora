@@ -84,6 +84,49 @@ def equity_vs_range(hole: list[str], codes: list[str], board: list[str] = (), sa
     return _equity(tuple(hole), tuple(sorted(set(codes))), tuple(board), samples)
 
 
+EVIDENCE = False  # v4: act only on strong evidence (see the interval helpers and the verdicts below)
+MARGIN_FOLD = 0.02
+MARGIN_CALL = 0.02
+K_BATCHES = 8
+
+
+def _combine(batches: list[float], boots: list[float]) -> tuple[float, float, float]:
+    """Mean of the batch estimates with a 95% interval, mean +/- 1.96 sd. The sd combines the Monte Carlo error of
+    the mean (batch sd / sqrt(K)) with range uncertainty (sd of the bootstrap re-estimates)."""
+    k = len(batches)
+    mean = sum(batches) / k
+    sd = lambda xs: (sum((x - sum(xs) / len(xs)) ** 2 for x in xs) / (len(xs) - 1)) ** 0.5  # noqa: E731
+    total = ((sd(batches) ** 2) / k + sd(boots) ** 2) ** 0.5
+    return round(mean, 4), round(max(0.0, mean - 1.96 * total), 4), round(min(1.0, mean + 1.96 * total), 4)
+
+
+@lru_cache(maxsize=4096)
+def _equity_interval(hole, codes, board, samples):
+    known = set(hole) | set(board)
+    per = max(1, samples // K_BATCHES)
+    base = repr((hole, codes, board, samples))
+
+    def live(cs):
+        return [c for code in cs for c in combos(code) if not (set(c) & known)]
+
+    villain = live(codes)
+    if not villain:
+        return 0.5, 0.0, 1.0
+    batches = [_simulate(hole, villain, board, per, f"{base}|b{i}") for i in range(K_BATCHES)]
+    rng = random.Random(base + "|boot")
+    boots = []
+    for i in range(K_BATCHES):
+        sample = live([rng.choice(codes) for _ in codes]) or villain
+        boots.append(_simulate(hole, sample, board, per, f"{base}|r{i}"))
+    return _combine(batches, boots)
+
+
+def equity_interval(hole, codes, board=(), samples: int = 600) -> tuple[float, float, float]:
+    """(equity, lo, hi) against a uniform pick from `codes`: K=8 seeded batches (MC error) plus 8 bootstrap
+    resamples of the hand codes (range uncertainty); lo/hi = mean -/+ 1.96 sd of the combined spread."""
+    return _equity_interval(tuple(hole), tuple(sorted(set(codes))), tuple(board), samples)
+
+
 def required_equity(price: float, risks_bust: bool, hand_number: int, total_hands: int = 30) -> float:
     """Pot-odds price plus a bust margin that shrinks as the game nears its end."""
     if not risks_bust:
@@ -93,6 +136,12 @@ def required_equity(price: float, risks_bust: bool, hand_number: int, total_hand
 
 
 def allin_call_verdict(hole, shove_range, *, price, risks_bust, hand_number, band=0.04, samples=600) -> dict:
+    if EVIDENCE:
+        equity, lo, hi = equity_interval(hole, shove_range, samples=samples)
+        required = required_equity(price, risks_bust, hand_number)
+        preferred = "fold" if hi < required - MARGIN_FOLD else "call" if lo > required + MARGIN_CALL else None
+        return {"rule": "allin_call", "preferred": preferred, "equity": equity, "required": required,
+                "equity_lo": lo, "equity_hi": hi}
     equity = equity_vs_range(hole, shove_range, samples=samples)
     required = required_equity(price, risks_bust, hand_number)
     preferred = "fold" if equity < required - band else "call" if equity > required + band else None
@@ -159,6 +208,7 @@ OPEN_RANGES = {
     "CO": "22+ A2s+ K8s+ Q9s+ J9s+ T9s 98s 87s 76s A9o+ KTo+ QTo+ JTo",
 }
 CONTINUE_VS_RAISE = "66+ A9s+ KTs+ QTs+ JTs T9s 98s AJo+ KQo"
+CONTINUE_VS_RAISE_WIDE = "44+ A2s+ K9s+ Q9s+ J9s+ T9s 98s 87s ATo+ KJo+ QJo"  # EVIDENCE: clear mistakes only
 CONTINUE_VS_3BET = "JJ+ AQs+ AKo"
 SHOVE_RANGES = ((40, "TT+ AQs+ AKo"), (20, "77+ ATs+ AJo+ KQs"), (0, "22+ A2s+ A7o+ K9s+ KJo+ QTs+ JTs"))
 
@@ -172,7 +222,7 @@ def facing_raise_verdict(code: str, position: str, action: str, *, raises_before
     if position in ("BB", "HU_BB") and to_call <= 4 and raises_before == 1:
         return None
     big = stack and to_call >= 0.3 * stack
-    spec = CONTINUE_VS_3BET if raises_before >= 2 or big else CONTINUE_VS_RAISE
+    spec = CONTINUE_VS_3BET if raises_before >= 2 or big else CONTINUE_VS_RAISE_WIDE if EVIDENCE else CONTINUE_VS_RAISE
     return None if in_range(code, spec) else "fold"
 
 
@@ -189,6 +239,10 @@ def open_verdict(code: str, position: str, action: str, to_call: float = 2) -> s
         return "raise" if code in PREMIUM else None
     if action == "raise" and position in LATE:
         bad = _trash(code)
+    elif EVIDENCE and position in ("UTG", "HJ") and action in ("raise", "call"):
+        bad = not in_range(code, OPEN_RANGES["CO"])
+    elif EVIDENCE and position == "CO" and action in ("raise", "call"):
+        bad = not _in_loose_range(code, position)
     elif position in OPEN_RANGES and action in ("raise", "call"):
         bad = not in_range(code, OPEN_RANGES[position])
     else:
@@ -346,23 +400,63 @@ def class_distribution(counts: dict) -> dict:
     return {k: (counts.get(k, 0) + 1) / total for k in CLASSES}
 
 
-@lru_cache(maxsize=4096)
-def _equity_classes(hole: tuple[str, ...], board: tuple[str, ...], dist: tuple[float, ...], samples: int) -> float:
+@lru_cache(maxsize=1024)
+def _class_groups(hole: tuple[str, ...], board: tuple[str, ...]) -> dict:
     known = set(hole) | set(board)
     by_class: dict = {k: [] for k in CLASSES}
     cards = [r + s for r in RANKS for s in SUITS if r + s not in known]
     for i, c1 in enumerate(cards):
         for c2 in cards[i + 1 :]:
             by_class[strength_class([c1, c2], list(board))].append((c1, c2))
-    live = [(k, by_class[k], p) for k, p in zip(CLASSES, dist) if by_class[k]]
+    return by_class
+
+
+def _weighted_villain(by_class: dict, dist) -> tuple[list, list] | None:
+    live = [(by_class[k], p) for k, p in zip(CLASSES, dist) if by_class[k]]
     if not live:
-        return 0.5
-    total = sum(p for _, _, p in live)
+        return None
+    total = sum(p for _, p in live)
     villain, weights = [], []
-    for _, group, p in live:
+    for group, p in live:
         villain += group
         weights += [p / total / len(group)] * len(group)
-    return _simulate(hole, villain, board, samples, repr((hole, board, dist, samples)), weights)
+    return villain, weights
+
+
+@lru_cache(maxsize=4096)
+def _equity_classes(hole: tuple[str, ...], board: tuple[str, ...], dist: tuple[float, ...], samples: int) -> float:
+    wv = _weighted_villain(_class_groups(hole, board), dist)
+    if wv is None:
+        return 0.5
+    return _simulate(hole, wv[0], board, samples, repr((hole, board, dist, samples)), wv[1])
+
+
+@lru_cache(maxsize=4096)
+def equity_interval_classes(hole: tuple[str, ...], board: tuple[str, ...], counts: tuple, samples: int = 600):
+    """(equity, lo, hi) against the class mixture given by `counts` = sorted (class, n) pairs. K=8 seeded batches
+    (MC error) plus 8 bootstrap resamples of the observed class counts (range uncertainty); mean -/+ 1.96 sd."""
+    by_class = _class_groups(hole, board)
+    per = max(1, samples // K_BATCHES)
+    base = repr((hole, board, counts, samples))
+
+    def dist_of(cn: dict) -> tuple[float, ...]:
+        d = class_distribution(cn)
+        return tuple(d[k] for k in CLASSES)
+
+    wv = _weighted_villain(by_class, dist_of(dict(counts)))
+    if wv is None:
+        return 0.5, 0.0, 1.0
+    batches = [_simulate(hole, wv[0], board, per, f"{base}|b{i}", wv[1]) for i in range(K_BATCHES)]
+    pool = [k for k, n in counts for _ in range(n)]
+    rng = random.Random(base + "|boot")
+    boots = []
+    for i in range(K_BATCHES):
+        cn: dict = {}
+        for k in (rng.choice(pool) for _ in pool):
+            cn[k] = cn.get(k, 0) + 1
+        w = _weighted_villain(by_class, dist_of(cn))
+        boots.append(_simulate(hole, w[0], board, per, f"{base}|r{i}", w[1]))
+    return _combine(batches, boots)
 
 
 CALL_EXTRA = 0.04  # extra margin for call corrections on the flop and turn
@@ -371,6 +465,13 @@ CALL_EXTRA = 0.04  # extra margin for call corrections on the flop and turn
 def postflop_call_verdict(hole, counts, board, *, price, risks_bust, hand_number, band=POSTFLOP_BAND,
                           samples=600) -> dict:
     dist = class_distribution(counts)
+    if EVIDENCE:
+        equity, lo, hi = equity_interval_classes(tuple(hole), tuple(board), tuple(sorted(counts.items())), samples)
+        required = required_equity(price, risks_bust, hand_number)
+        call_margin = MARGIN_CALL + (CALL_EXTRA if len(board) < 5 else 0.0)
+        preferred = "fold" if hi < required - MARGIN_FOLD else "call" if lo > required + call_margin else None
+        return {"rule": "postflop_call", "preferred": preferred, "equity": equity, "required": required,
+                "equity_lo": lo, "equity_hi": hi, "dist": {k: round(v, 3) for k, v in dist.items()}}
     equity = _equity_classes(tuple(hole), tuple(board), tuple(dist[k] for k in CLASSES), samples)
     required = required_equity(price, risks_bust, hand_number)
     # Before the river the bettor can keep betting, so raw equity overstates what a call realizes: a "call"

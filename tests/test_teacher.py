@@ -296,3 +296,73 @@ def test_ranges_are_field_level_by_default_because_seats_are_anonymous(monkeypat
     field, own = t.shove_range(con, "e0|v1|d0", exclude=("m_a", 2))
     assert own == 1 and per_opp == ["QQ"]
     assert set(field) >= {"QQ"} and field == sorted(set(field))  # the field's shoves, not seat 0's own record
+
+
+# ---- teacher v4: evidence test ----
+
+
+def test_equity_interval_brackets_the_point_estimate_and_orders_hands():
+    import poker.teacher as t
+    tight = ["QQ", "KK", "AA", "AKs", "AKo"]
+    eq, lo, hi = t.equity_interval(["9h", "6c"], tight, samples=400)
+    assert 0.0 <= lo <= eq <= hi <= 1.0 and hi - lo > 0
+    eq2, lo2, hi2 = t.equity_interval(["Ah", "Ad"], tight, samples=400)
+    assert lo2 > hi and eq2 > eq
+    assert t.equity_interval(["9h", "6c"], tight, samples=400) == (eq, lo, hi)  # seeded and cached
+
+
+def test_equity_interval_classes_is_deterministic_and_ordered():
+    import poker.teacher as t
+    counts = {"strong": 1, "top_pair": 3, "pair": 6}
+    board = ("Ks", "9d", "4h")
+    junk = t.equity_interval_classes(("7h", "2s"), board, tuple(sorted(counts.items())), samples=400)
+    set_ = t.equity_interval_classes(("Kh", "Kd"), board, tuple(sorted(counts.items())), samples=400)
+    assert junk[1] <= junk[0] <= junk[2] and set_[1] > junk[2]
+    assert junk == t.equity_interval_classes(("7h", "2s"), board, tuple(sorted(counts.items())), samples=400)
+
+
+def test_evidence_flag_is_off_by_default():
+    import poker.teacher as t
+    assert t.EVIDENCE is False and t.MARGIN_FOLD == 0.02 and t.MARGIN_CALL == 0.02
+
+
+def test_evidence_allin_call_needs_the_whole_interval_past_the_threshold(monkeypatch):
+    import poker.teacher as t
+    monkeypatch.setattr(t, "EVIDENCE", True)
+    required = t.required_equity(0.40, False, 10)  # 0.40
+    def at(eq, lo, hi):
+        monkeypatch.setattr(t, "equity_interval", lambda *a, **k: (eq, lo, hi))
+        return t.allin_call_verdict(["9h", "6c"], ["AA"], price=0.40, risks_bust=False, hand_number=10)
+    assert at(0.30, 0.25, 0.35)["preferred"] == "fold"  # hi 0.35 < 0.40 - 0.02
+    assert at(0.34, 0.25, 0.39)["preferred"] is None  # point estimate is low but the interval reaches 0.39
+    assert at(0.50, 0.43, 0.57)["preferred"] == "call"  # lo 0.43 > 0.42
+    assert at(0.50, 0.41, 0.57)["preferred"] is None
+    v = at(0.30, 0.25, 0.35)
+    assert v["equity_lo"] == 0.25 and v["equity_hi"] == 0.35 and v["required"] == required
+
+
+def test_evidence_postflop_call_keeps_the_extra_margin_before_the_river(monkeypatch):
+    import poker.teacher as t
+    monkeypatch.setattr(t, "EVIDENCE", True)
+    monkeypatch.setattr(t, "equity_interval_classes", lambda *a, **k: (0.5, 0.45, 0.55))
+    counts = {c: 1 for c in t.CLASSES}
+    flop = t.postflop_call_verdict(["Ah", "Kd"], counts, ["2c", "7d", "9s"], price=0.40, risks_bust=False, hand_number=10)
+    river = t.postflop_call_verdict(["Ah", "Kd"], counts, ["2c", "7d", "9s", "Th", "3c"], price=0.40, risks_bust=False,
+                                    hand_number=10)
+    assert flop["preferred"] is None  # lo 0.45 <= 0.40 + 0.02 + 0.04
+    assert river["preferred"] == "call" and river["equity_lo"] == 0.45 and river["equity_hi"] == 0.55
+
+
+def test_evidence_mode_widens_preflop_ranges(monkeypatch):
+    import poker.teacher as t
+    assert t.open_verdict("KTo", "UTG", "raise") == "fold"
+    assert t.facing_raise_verdict("A8o", "CO", "call", raises_before=1, to_call=4, stack=200) == "fold"
+    monkeypatch.setattr(t, "EVIDENCE", True)
+    assert t.open_verdict("KTo", "UTG", "raise") is None  # inside the CO range
+    assert t.open_verdict("A9o", "HJ", "raise") is None
+    assert t.open_verdict("72o", "UTG", "raise") == "fold"  # still a clear mistake
+    assert t.open_verdict("AA", "UTG", "fold") == "raise"
+    assert t.facing_raise_verdict("A8s", "CO", "call", raises_before=1, to_call=4, stack=200) is None
+    assert t.facing_raise_verdict("K7o", "CO", "call", raises_before=1, to_call=4, stack=200) == "fold"
+    assert t.facing_raise_verdict("99", "CO", "call", raises_before=2, to_call=14, stack=200) == "fold"  # 3-bet spec same
+    assert t.open_shove_verdict("A9s", effective_bb=100) == "fold"  # own_shove unchanged

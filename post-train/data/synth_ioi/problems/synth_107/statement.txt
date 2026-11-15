@@ -1,0 +1,60 @@
+MINKOWSKI CARAVAN ENVELOPE
+
+A trade guild coordinates N regional chapters. Chapter i controls m_i outpost locations (X_{i,j}, Y_{i,j}) in the 2D plane. The guild must select exactly one outpost p_i from each chapter i, forming the combined vector S = p_1 + p_2 + ... + p_N.
+
+You are given Q trade-wind scenarios. Scenario q specifies an integer direction vector (A_q, B_q) (not both zero) and asks for the maximum possible dot product A_q * S_x + B_q * S_y achievable over all valid choices of (p_1, ..., p_N).
+
+Input
+The first line contains N and Q.
+Then N blocks follow. Block i begins with a line containing m_i, followed by m_i lines each containing X_{i,j} and Y_{i,j}.
+After all N blocks, Q lines follow, each containing A_q and B_q.
+
+Output
+For each scenario print the maximum dot product on its own line.
+
+Constraints
+1 <= N <= 40000
+1 <= sum of m_i <= 150000
+1 <= Q <= 150000
+-10^6 <= X_{i,j}, Y_{i,j}, A_q, B_q <= 10^6
+(A_q, B_q) != (0, 0)
+
+Sample input 1 (file sample_1.in)
+2 4
+3
+0 0
+2 0
+0 3
+2
+1 1
+4 -1
+1 1
+1 0
+0 1
+-1 -1
+
+Sample output 1 (file sample_1.out)
+6
+6
+4
+-2
+
+Sample input 2 (file sample_2.in)
+3 2
+1
+5 -2
+2
+0 0
+0 4
+3
+-1 0
+1 0
+0 2
+2 3
+-3 1
+
+Sample output 2 (file sample_2.out)
+22
+-10
+
+Limits: 2 seconds and 1024 MiB of memory per test.

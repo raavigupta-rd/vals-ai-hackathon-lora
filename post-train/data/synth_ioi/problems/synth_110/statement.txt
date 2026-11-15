@@ -1,0 +1,33 @@
+CONSTRAINED CYCLE PERMUTATIONS
+
+You are given positive integers N and K, and a set S of M allowed cycle lengths.
+
+Count how many permutations of {1, 2, ..., N} decompose into EXACTLY K disjoint directed cycles such that the length of every cycle belongs to S. Print the count modulo 998244353.
+
+Input
+The first line contains N, K, and M.
+The second line contains M integers s_1 ... s_M describing S.
+
+Output
+Print the number of valid permutations modulo 998244353.
+
+Constraints
+1 <= K <= N <= 100000
+1 <= M <= N
+1 <= s_i <= N
+
+Sample input 1 (file sample_1.in)
+4 2 3
+1 2 3
+
+Sample output 1 (file sample_1.out)
+11
+
+Sample input 2 (file sample_2.in)
+6 2 2
+2 4
+
+Sample output 2 (file sample_2.out)
+90
+
+Limits: 2 seconds and 1024 MiB of memory per test.

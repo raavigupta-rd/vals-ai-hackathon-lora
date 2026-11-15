@@ -1,0 +1,47 @@
+BANNER ON THE PALISADE
+
+A wooden palisade consists of N vertical planks placed side by side, numbered 1 to N. Plank i has width 1 and height H_i.
+
+You must answer Q queries. Each query specifies an interval of planks [L, R] and a banner width W (1 <= W <= R - L + 1). You want to hang a solid rectangular banner of width W and height h wholly inside planks [L, R] with its base resting at height 0, so it covers W consecutive planks s, s+1, ..., s+W-1 (L <= s <= R - W + 1) and requires H_i >= h for every covered plank i.
+
+For each query, print the maximum possible integer height h.
+
+Input
+The first line contains N and Q.
+The second line contains H_1 ... H_N.
+Each of the next Q lines contains L, R, and W.
+
+Output
+For each query print the maximum banner height on its own line.
+
+Constraints
+1 <= N, Q <= 100000
+1 <= H_i <= 10^9
+1 <= L <= R <= N
+1 <= W <= R - L + 1
+
+Sample input 1 (file sample_1.in)
+6 4
+4 8 6 7 3 9
+1 6 3
+2 5 2
+1 4 4
+5 6 1
+
+Sample output 1 (file sample_1.out)
+6
+6
+4
+9
+
+Sample input 2 (file sample_2.in)
+4 2
+5 5 5 5
+1 4 3
+2 3 2
+
+Sample output 2 (file sample_2.out)
+5
+5
+
+Limits: 2 seconds and 1024 MiB of memory per test.

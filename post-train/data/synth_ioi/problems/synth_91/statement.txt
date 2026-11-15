@@ -1,0 +1,35 @@
+CHRONICLE SUBSTRING SPAN
+
+You are given a string S of length N (1-indexed) and Q queries. Each query specifies four integers L, R, A, and B (1 <= L <= R <= N, 1 <= A <= B <= N):
+
+Find the maximum integer k (0 <= k <= B - A + 1) such that the length-k prefix of S[A..B] — namely S[A .. A + k - 1] — appears as a contiguous substring completely inside S[L..R] (k = 0 is always valid as the empty string).
+
+Input
+The first line contains N and Q.
+The second line contains S.
+Each of the next Q lines contains four integers L, R, A, and B.
+
+Output
+For each query print the maximum valid prefix length k on its own line.
+
+Constraints
+1 <= N, Q <= 90000
+S consists of lowercase English letters ('a'-'z')
+1 <= L <= R <= N
+1 <= A <= B <= N
+
+Sample input 1 (file sample_1.in)
+10 4
+abacabadab
+1 7 4 10
+2 6 1 5
+8 10 1 4
+5 9 8 10
+
+Sample output 1 (file sample_1.out)
+4
+2
+2
+2
+
+Limits: 2 seconds and 1024 MiB of memory per test.

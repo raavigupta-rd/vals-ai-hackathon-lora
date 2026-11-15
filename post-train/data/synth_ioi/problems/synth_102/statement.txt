@@ -1,0 +1,53 @@
+DISJOINT SUBSET RESONANCE
+
+An alchemist has B elemental catalysts numbered 0 to B - 1. Every subset of catalysts is represented by an integer bitmask S in [0, 2^B - 1].
+
+You are given two arrays F[0 ... 2^B - 1] and G[0 ... 2^B - 1]. For each subset S, define the disjoint subset resonance:
+H[S] = (sum_{T subseteq S} F[T] * G[S \ T]) mod 998244353,
+where S \ T denotes the set difference (equivalently, T & (S ^ T) == 0 and T | (S ^ T) == S).
+
+Given Q queried bitmasks S_1, ..., S_Q, print H[S_j] for each query.
+
+Input
+The first line contains B and Q.
+The second line contains 2^B integers F[0] ... F[2^B - 1].
+The third line contains 2^B integers G[0] ... G[2^B - 1].
+Each of the next Q lines contains an integer S_j (0 <= S_j < 2^B).
+
+Output
+For each query print H[S_j] on its own line.
+
+Constraints
+1 <= B <= 19
+1 <= Q <= 100000
+0 <= F[i], G[i] < 998244353
+
+Sample input 1 (file sample_1.in)
+2 4
+1 2 3 4
+5 6 7 8
+0
+1
+2
+3
+
+Sample output 1 (file sample_1.out)
+5
+16
+22
+60
+
+Sample input 2 (file sample_2.in)
+3 3
+1 1 1 1 1 1 1 1
+1 2 3 4 5 6 7 8
+7
+5
+0
+
+Sample output 2 (file sample_2.out)
+36
+14
+1
+
+Limits: 2 seconds and 1024 MiB of memory per test.

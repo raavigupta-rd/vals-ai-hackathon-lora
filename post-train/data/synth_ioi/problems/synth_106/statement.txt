@@ -1,0 +1,46 @@
+PATROL CHECKPOINTS
+
+A kingdom has N cities connected by N - 1 bidirectional roads forming a tree. Fortifying road i with a checkpoint costs C_i gold.
+
+Intelligence reports M smuggling routes. Smuggler j travels along the unique simple path between cities U_j and V_j. If at least one road on that path is fortified, smuggler j is intercepted; otherwise the kingdom suffers a loss of P_j gold.
+
+Find the minimum possible total sum of checkpoint fortification costs plus losses from unintercepted smugglers.
+
+Input
+The first line contains N and M.
+Each of the next N - 1 lines contains U_i, V_i, and C_i describing a road.
+Each of the next M lines contains U_j, V_j, and P_j describing a smuggler route.
+
+Output
+Print the minimum total cost.
+
+Constraints
+2 <= N <= 20000
+1 <= M <= 20000
+1 <= C_i, P_j <= 10^6
+
+Sample input 1 (file sample_1.in)
+5 3
+1 2 5
+2 3 4
+2 4 6
+4 5 3
+1 3 10
+3 5 8
+1 4 2
+
+Sample output 1 (file sample_1.out)
+18
+
+Sample input 2 (file sample_2.in)
+4 2
+1 2 10
+2 3 10
+3 4 10
+1 4 7
+2 2 100
+
+Sample output 2 (file sample_2.out)
+7
+
+Limits: 2 seconds and 1024 MiB of memory per test.

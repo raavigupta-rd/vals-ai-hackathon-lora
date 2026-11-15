@@ -1,0 +1,9 @@
+.licenses/
+.DS_Store
+__pycache__/
+*.pyc
+post-train/.venv
+post-train/.venv/
+post-train/runs/
+post-train/.cache/
+post-train/data/qwen_traces/*.raw.jsonl

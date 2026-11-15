@@ -157,7 +157,7 @@ async def main(args):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--problems", default=str(ROOT / "data" / "eval" / "cf_test.jsonl"))
+    ap.add_argument("--problems", default=str(ROOT / "data" / "curated_r1" / "eval.jsonl"))
     ap.add_argument("--n", type=int, default=None, help="subsample n problems spread over ratings")
     ap.add_argument("--ids", default=None)
     ap.add_argument("--tag", default="base")

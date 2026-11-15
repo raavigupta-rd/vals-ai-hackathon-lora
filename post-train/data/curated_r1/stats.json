@@ -1,0 +1,87 @@
+{
+  "elapsed_seconds": 2803.4,
+  "plan": {
+    "eval_candidates": 68,
+    "eval_contests": 32,
+    "eval_batches": 4,
+    "train_dedup_pool": 1931,
+    "train_selected_candidates": 840,
+    "train_contests": 578,
+    "train_batches": 73,
+    "filter_stats": {
+      "drop_no_gt_parquet": 660,
+      "drop_reject_phrase": 187,
+      "drop_custom_checker": 1754,
+      "drop_not_exec": 839,
+      "drop_few_gt": 731,
+      "drop_unrated": 107,
+      "drop_eval_shield": 48,
+      "drop_not_stdio": 39,
+      "drop_no_ac_cpp": 16,
+      "drop_interactive": 2,
+      "drop_bad_tl": 2,
+      "drop_short_desc": 1,
+      "drop_alias_dup": 30
+    },
+    "plan_seconds": 22.5
+  },
+  "eval_verify_counts": {
+    "kept": 56,
+    "drop_small_max_bytes_and_no_tle": 12
+  },
+  "train_verify_counts": {
+    "kept": 655,
+    "drop_small_max_bytes_and_no_tle": 150,
+    "drop_ref_failed_tests": 18,
+    "drop_too_few_tests": 17
+  },
+  "eval": {
+    "count": 56,
+    "single_instance_count": 5,
+    "single_instance_frac": 0.089,
+    "tle_empirically_verified_count": 0,
+    "tle_40pt_subtask_count": 0,
+    "max_input_bytes_p10": 94802,
+    "max_input_bytes_median": 2083168,
+    "max_input_bytes_p90": 5673673,
+    "ratings": {
+      "1400": 1,
+      "1500": 4,
+      "1600": 6,
+      "1700": 5,
+      "1800": 5,
+      "1900": 9,
+      "2000": 2,
+      "2100": 7,
+      "2200": 4,
+      "2300": 2,
+      "2400": 1,
+      "2500": 9,
+      "2600": 1
+    }
+  },
+  "train": {
+    "count": 600,
+    "single_instance_count": 575,
+    "single_instance_frac": 0.958,
+    "tle_empirically_verified_count": 2,
+    "tle_40pt_subtask_count": 1,
+    "max_input_bytes_p10": 100001,
+    "max_input_bytes_median": 1300007,
+    "max_input_bytes_p90": 4178055,
+    "ratings": {
+      "1500": 52,
+      "1600": 46,
+      "1700": 79,
+      "1800": 68,
+      "1900": 77,
+      "2000": 76,
+      "2100": 61,
+      "2200": 63,
+      "2300": 18,
+      "2400": 19,
+      "2500": 26,
+      "2600": 15
+    }
+  }
+}

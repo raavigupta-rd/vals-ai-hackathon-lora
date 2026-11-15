@@ -1,9 +1,11 @@
+.venv
 .venv/
 __pycache__/
 *.pyc
 .env
 data/*
-!data/synth_ioi/
+!data/curated_r1/
+!data/curated_r1/**
 .cache/
 runs/
-data/synth_ioi/.build_rw/
+data/qwen_traces/*.raw.jsonl

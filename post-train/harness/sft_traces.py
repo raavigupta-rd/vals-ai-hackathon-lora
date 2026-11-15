@@ -136,9 +136,8 @@ async def main(a):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--traces", nargs="+", required=True)
-    ap.add_argument("--problems", nargs="+", default=[str(ROOT / "data" / "synth_ioi" / "problems.jsonl"),
-                                                      str(ROOT / "data" / "cc_train" / "problems.jsonl")])
-    ap.add_argument("--heldout", default=str(ROOT / "data" / "synth_ioi" / "heldout.jsonl"))
+    ap.add_argument("--problems", nargs="+", default=[str(ROOT / "data" / "curated_r1" / "train.jsonl")])
+    ap.add_argument("--heldout", default=str(ROOT / "data" / "curated_r1" / "eval.jsonl"))
     ap.add_argument("--name", default="lenz-mimo-sft")
     ap.add_argument("--renderer", default="qwen3_5")
     ap.add_argument("--min-score", type=float, default=100.0)

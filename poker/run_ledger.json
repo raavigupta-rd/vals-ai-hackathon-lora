@@ -381,8 +381,9 @@
       "steps": 18,
       "batch": 64,
       "parent": "base",
-      "status": "running",
-      "source": "teams-only v3 + steal + stab + oversize, shortest validated base replies, no say; 204 corrections (420 tasks), 1260 anchors"
+      "status": "succeeded",
+      "source": "teams-only v3 + steal + stab + oversize, shortest validated base replies, no say; 204 corrections (420 tasks), 1260 anchors",
+      "note": "finished at step 18 before the stop landed"
     },
     {
       "id": "train_b158ced6e771",
@@ -393,8 +394,19 @@
       "checkpoint_every": 6,
       "base_checkpoint": "ckpt_54a267c87fcd",
       "parent": "c2b-s12",
-      "status": "running",
-      "source": "teams-only v3 + steal/stab/oversize; 259 shortest validated corrections resampled from c2b-s12 (36 from its own arena games, x2); 340 base cleanup anchors (update_scratchpad); no say"
+      "status": "succeeded",
+      "source": "teams-only v3 + steal/stab/oversize; 259 shortest validated corrections resampled from c2b-s12 (36 from its own arena games, x2); 340 base cleanup anchors (update_scratchpad); no say",
+      "checkpoints": {
+        "step6": "ckpt_ee79e82b606c",
+        "step12": "ckpt_1b783499cadb"
+      }
+    },
+    {
+      "id": "train_c78a20f4c588",
+      "kind": "grpo",
+      "status": "stopped",
+      "note": "stopped while queued: GRPO waits until SFT gets the basics right; plan to run overnight from the best SFT checkpoint",
+      "settings": "from c4-s6, mix spot 0.5/shove 0.3/cleanup 0.2 vs scripted bots, 30x16x8, group filter 0.05/probe 4, filter truncated, routing replay, no eval"
     }
   ],
   "training_slot": {
@@ -550,6 +562,34 @@
       "ref": "c2b-s12",
       "finding": "6-step OPSD-KL arms stay at base (52-56% vs base 53%); c2b-s12 still best (62%, all-in call rate 51% vs base 61%); all r3 deleted",
       "arena_c2b_s12": "8 matches, 0 busts, mean place 3.62 [2.25,4.75], +3.2 bb/match"
+    },
+    "c4": {
+      "file": "data/gate/c4.json",
+      "ref": "c2b-s12",
+      "c4-s6": {
+        "valid": 0.99,
+        "cutoff": 0.0,
+        "cleanup": "30/30",
+        "diff": 0.16,
+        "ci": [
+          0.02,
+          0.31
+        ],
+        "allin_call_rate": 0.1,
+        "tokens_median": 568
+      },
+      "c4-s12": {
+        "diff": 0.06,
+        "cleanup": "30/30"
+      },
+      "r3c-s18": {
+        "diff": 0.11,
+        "cleanup": "30/30"
+      },
+      "c2b-s12": {
+        "cleanup": "20/30"
+      },
+      "decision": "c4-s6 best; recommended for the arena"
     }
   },
   "arena_entry": {
@@ -572,6 +612,7 @@
     "Final tournament has no house bots: teacher field ranges now LLM-team only.",
     "Vals Staff: small preflop pots (no raise >10bb except 1), no table talk, ~450 tokens; 7 matches, 0 busts, mean place 2.57.",
     "Cleanup-turn regression: base 98.5% valid update_scratchpad, c2b-s12 67%, sft-c1-s10 29%. SFT now includes cleanup anchors; gate checks it.",
-    "Leak hunt (10 analysts + skeptics, 18 proposals): 11 refuted (house-bot contamination, luck, duplicates); kept: cleanup fix (urgent), junk cold-call fold, call monsters at a fair price, fold river air."
+    "Leak hunt (10 analysts + skeptics, 18 proposals): 11 refuted (house-bot contamination, luck, duplicates); kept: cleanup fix (urgent), junk cold-call fold, call monsters at a fair price, fold river air.",
+    "Vals bot creator (first place): simple rules first, then refine; study successful agents' traces with LLMs; don't over-fold preflop in 30-hand games, but don't call oversized preflop bets."
   ]
 }

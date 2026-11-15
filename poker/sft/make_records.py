@@ -343,6 +343,18 @@ def _is_action_target(record: dict) -> bool:
     return record["target"]["tool_call"]["name"] == "submit_action"
 
 
+def drop_long(records, max_chars: int) -> tuple[list[dict], dict]:
+    """Drop action-turn records whose target reasoning exceeds `max_chars`: long targets teach long replies, and the
+    arena cuts replies off at the token cap. Cleanup and pad records are kept."""
+    out, dropped = [], {}
+    for record in records:
+        if _is_action_target(record) and len(record["target"].get("reasoning") or "") > max_chars:
+            dropped[record["source"]] = dropped.get(record["source"], 0) + 1
+            continue
+        out.append(record)
+    return out, {"dropped": dropped}
+
+
 def add_fact_headers(records) -> tuple[list[dict], dict]:
     """Prepend poker.facts.fact_line(prompt) and a newline to every action-turn target reasoning (any source).
     Cleanup-turn and pad records are left alone; so are records whose prompt cannot be parsed. Idempotent."""
@@ -535,6 +547,8 @@ def main() -> None:
     parser.add_argument("--rewrite-pads-strict", action="store_true",
                         help="implies --rewrite-pads; also drops action records whose pad could not be rewritten when they "
                              "carry a pad-dependent correction (rule pad_read), and reports rewritten/kept/dropped")
+    parser.add_argument("--max-reasoning-chars", type=int, default=0,
+                        help="drop action targets whose reasoning is longer than this (0 = keep all)")
     parser.add_argument("--pad-version", type=int, choices=(1, 2), default=1,
                         help="writer version for --rewrite-pads: 2 = head-heavy exploit pad (poker/pad/writer.py)")
     parser.add_argument("--fact-header", action="store_true",
@@ -619,6 +633,8 @@ def main() -> None:
         stats["pad_rewrite"] = rewrite_stats
     if args.drop_hallucinated:
         records, stats["hallucination"] = drop_hallucinated(records)
+    if args.max_reasoning_chars:
+        records, stats["too_long"] = drop_long(records, args.max_reasoning_chars)
     if args.fact_header:
         records, stats["fact_header"] = add_fact_headers(records)
     if args.cleanup_ratio > 0:

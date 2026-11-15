@@ -735,3 +735,17 @@ def test_rewrite_pads_passes_the_pad_version(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "argv", base + ["--pad-version", "2"])
     make_records.main()
     assert seen["version"] == 2
+
+
+def test_drop_long_drops_only_long_action_targets():
+    from poker.sft.make_records import drop_long
+
+    def rec(n, source="self_clean"):
+        return {"messages": [], "source": source,
+                "target": {"reasoning": "x" * n, "tool_call": {"name": "submit_action", "arguments": {"action": "fold"}}}}
+
+    cleanup = {"messages": [], "source": "pad_teacher", "target": {"reasoning": "y" * 9000,
+               "tool_call": {"name": "update_scratchpad", "arguments": {"content": "z"}}}}
+    kept, stats = drop_long([rec(100), rec(5000), rec(2999, "teacher_resampled"), cleanup], 3000)
+    assert [len(r["target"]["reasoning"]) for r in kept] == [100, 2999, 9000]
+    assert stats == {"dropped": {"self_clean": 1}}

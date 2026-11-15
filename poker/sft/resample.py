@@ -65,6 +65,13 @@ def pick_reply(prompt, samples, *, preferred: str, validate=_valid_by_gate) -> d
     return None
 
 
+def pick_shortest(prompt, samples, *, preferred: str, validate=_valid_by_gate) -> dict | None:
+    """Among all samples that pass pick_reply's checks, the one with the shortest reasoning. Teams that improved
+    on the arena ladder moved to short, decisive replies; picking the shortest valid target teaches brevity."""
+    picks = [p for s in samples if (p := pick_reply(prompt, [s], preferred=preferred, validate=validate))]
+    return min(picks, key=lambda p: len(p["reasoning"])) if picks else None
+
+
 def main() -> None:
     from poker.gate import HttpClient, chat_messages, chat_tools, load_entries, load_api_key
 
@@ -75,6 +82,7 @@ def main() -> None:
     parser.add_argument("--samples", type=int, default=6)
     parser.add_argument("--hinted-samples", type=int, default=4, help="re-rolls with a coaching hint after plain ones fail")
     parser.add_argument("--concurrency", type=int, default=12)
+    parser.add_argument("--shortest", action="store_true", help="draw all plain samples and keep the shortest valid one")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     client, tools = HttpClient(load_api_key()), chat_tools()
@@ -101,7 +109,13 @@ def main() -> None:
         preferred = verdict["preferred"]
         messages = chat_messages(record["messages"])
         tries = 0
-        for _ in range(args.samples):
+        if args.shortest:
+            drawn = [client.complete(args.deployment, messages, tools) for _ in range(args.samples)]
+            tries = len(drawn)
+            picked = pick_shortest(record["messages"], drawn, preferred=preferred)
+            if picked:
+                return record["span_id"], preferred, picked | {"hinted": False}, tries
+        for _ in range(0 if args.shortest else args.samples):
             tries += 1
             picked = pick_reply(record["messages"], [client.complete(args.deployment, messages, tools)], preferred=preferred)
             if picked:

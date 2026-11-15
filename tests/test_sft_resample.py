@@ -47,3 +47,14 @@ def test_replies_that_mention_the_hint_are_rejected():
     assert not mentions_hint("I need 57% equity and have 38%. Fold.")
     samples = [response("fold", reasoning="The coaching note says fold.")]
     assert pick_reply(PROMPT, samples, preferred="fold", validate=lambda p, r: True) is None
+
+
+from poker.sft.resample import pick_shortest
+
+
+def test_pick_shortest_keeps_the_shortest_valid_agreeing_reply():
+    samples = [response("fold", reasoning="long " * 200), response("call", reasoning="short"),
+               response("fold", reasoning="Weak hand, bad price. Fold."), response("fold", reasoning="x" * 20000)]
+    picked = pick_shortest(PROMPT, samples, preferred="fold", validate=lambda p, r: True)
+    assert picked["reasoning"] == "Weak hand, bad price. Fold."
+    assert pick_shortest(PROMPT, [response("call")], preferred="fold", validate=lambda p, r: True) is None

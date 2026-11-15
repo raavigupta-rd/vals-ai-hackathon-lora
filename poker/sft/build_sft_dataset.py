@@ -37,10 +37,12 @@ from pydantic import TypeAdapter, ValidationError
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from poker.hints import parse_prompt  # noqa: E402
-from poker.trace_quality import legal_reply  # noqa: E402
+from poker.trace_quality import is_cleanup, legal_reply  # noqa: E402
 
 ITEMS = TypeAdapter(list[Item])
 SUBMIT = "submit_action"
+SCRATCHPAD = "update_scratchpad"
+SCRATCHPAD_CHARS = 5000  # the event rejects longer updates
 ARG_KEYS = {"action", "amount", "say"}
 MAX_COPIES = 10
 CHARS_PER_TOKEN = 3.5  # conservative for English plus poker notation
@@ -102,6 +104,31 @@ def _arguments(call) -> dict:
     return args
 
 
+def _cleanup_task(record: dict, prompt: list[Item], decision_id: str, max_reasoning_tokens: int) -> tuple[Task, int]:
+    """An after-hand cleanup turn: exactly one update_scratchpad call with the full new contents. SFT that trains
+    only action turns made fine-tunes answer cleanup turns with submit_action (base 98.5% correct, c2b-s12 67%,
+    sft-c1-s10 29%), so cleanup anchors keep that behavior."""
+    target = record["target"]
+    args = target["tool_call"].get("arguments")
+    if not isinstance(args, dict) or set(args) != {"contents"} or not isinstance(args["contents"], str):
+        raise Rejected("arguments", "update_scratchpad needs exactly a string 'contents'")
+    if len(args["contents"]) > SCRATCHPAD_CHARS:
+        raise Rejected("too_long", f"scratchpad {len(args['contents'])} chars")
+    reasoning, content = target.get("reasoning"), target.get("content") or ""
+    if not isinstance(reasoning, str) or not reasoning.strip():
+        raise Rejected("no_reasoning")
+    if estimate_tokens(reasoning) > 2 * max_reasoning_tokens:  # the cleanup turn has a 10,000-token budget
+        raise Rejected("too_long", f"~{estimate_tokens(reasoning)} tokens")
+    call = FunctionCall(call_id="call_" + hashlib.sha256(decision_id.encode()).hexdigest()[:12], name=SCRATCHPAD,
+                        arguments=json.dumps(args, separators=(",", ":")))
+    reply: list[Item] = [Reasoning(content=reasoning)]
+    if content.strip():
+        reply.append(Message(role="assistant", content=content))
+    reply.append(call)
+    env = {"tools": TOOLS, "source": str(record.get("source", "")), "decision_id": decision_id}
+    return Task(input=prompt + reply, env_params=env), copies_for(record.get("weight"), decision_id)
+
+
 def record_to_task(record: dict, *, max_reasoning_tokens: int = DEFAULT_MAX_REASONING_TOKENS,
                    strict: bool = False) -> tuple[Task, int]:
     """Validate one record; return (task, copies). Raises `Rejected` with a stats reason."""
@@ -110,7 +137,12 @@ def record_to_task(record: dict, *, max_reasoning_tokens: int = DEFAULT_MAX_REAS
     decision_id = str(record.get("decision_id", ""))
     target = record["target"]
     prompt = _prompt_items(record.get("messages"))
-    args = _arguments(target.get("tool_call"))
+    tool_call = target.get("tool_call")
+    if isinstance(tool_call, dict) and tool_call.get("name") == SCRATCHPAD:
+        if not is_cleanup([i.model_dump(mode="json") for i in prompt]):
+            raise Rejected("format", "update_scratchpad is only a valid target on an after-hand cleanup turn")
+        return _cleanup_task(record, prompt, decision_id, max_reasoning_tokens)
+    args = _arguments(tool_call)
     reasoning, content = target.get("reasoning"), target.get("content") or ""
     if not isinstance(reasoning, str) or not reasoning.strip():
         raise Rejected("no_reasoning")

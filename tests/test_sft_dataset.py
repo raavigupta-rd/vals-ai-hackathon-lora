@@ -143,3 +143,29 @@ def test_load_records_reports_bad_json(tmp_path):
 
 def test_token_estimate_is_conservative():
     assert b.estimate_tokens("a" * 350) == 100
+
+
+def test_cleanup_records_train_an_update_scratchpad_call():
+    from poker.sft.build_sft_dataset import record_to_task
+    from ac2.runtime import FunctionCall
+    record = {"decision_id": "c1", "source": "cleanup_anchor",
+              "messages": [{"role": "system", "content": "rules"},
+                           {"role": "user", "content": "Hand 3 is over.\nNow call update_scratchpad with the full new contents."}],
+              "target": {"reasoning": "Note the reads.", "content": "",
+                         "tool_call": {"name": "update_scratchpad", "arguments": {"contents": "S2 tight. S4 shoves wide."}}}}
+    task, copies = record_to_task(record)
+    call = task.input[-1]
+    assert isinstance(call, FunctionCall) and call.name == "update_scratchpad" and copies == 1
+    assert json.loads(call.arguments) == {"contents": "S2 tight. S4 shoves wide."}
+
+
+def test_cleanup_targets_reject_overlong_or_malformed_contents():
+    import pytest
+    from poker.sft.build_sft_dataset import Rejected, record_to_task
+    base = {"decision_id": "c2", "messages": [{"role": "system", "content": "r"}, {"role": "user", "content": "Hand over.\nNow call update_scratchpad now."}],
+            "target": {"reasoning": "x", "content": "", "tool_call": {"name": "update_scratchpad", "arguments": {}}}}
+    with pytest.raises(Rejected):
+        record_to_task(base)
+    base["target"]["tool_call"]["arguments"] = {"contents": "y" * 5001}
+    with pytest.raises(Rejected):
+        record_to_task(base)

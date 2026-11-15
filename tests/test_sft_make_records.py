@@ -232,3 +232,18 @@ def test_keep_say_cli_flag(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "argv", base + ["--keep-say"])
     make_records.main()
     assert seen["strip_say"] is False
+
+
+def test_cleanup_anchors_keep_valid_scratchpad_updates_only():
+    from poker.sft.make_records import cleanup_anchors
+    def cl(i, name="update_scratchpad", contents="notes", cutoff=False):
+        return {"span_id": f"c{i}", "source": "arena", "kind": "cleanup", "cutoff": cutoff, "deployment": "d",
+                "messages": [{"role": "system", "content": "r"}, {"role": "user", "content": "Now call update_scratchpad"}],
+                "reasoning": "keep reads", "content": "",
+                "tool_calls": [{"name": name, "arguments": json.dumps({"contents": contents} if name == "update_scratchpad" else {"action": "fold"})}]}
+    pool = [cl(i) for i in range(6)] + [cl(9, name="submit_action"), cl(10, cutoff=True), cl(11, contents="x" * 6000)]
+    out = cleanup_anchors(pool, n=10, cycle=4, seed=0)
+    assert {r["decision_id"] for r in out} == {f"c{i}" for i in range(6)}
+    assert all(r["target"]["tool_call"] == {"name": "update_scratchpad", "arguments": {"contents": "notes"}} for r in out)
+    assert all(r["source"] == "cleanup_anchor" for r in out)
+    assert len(cleanup_anchors(pool, n=3, cycle=4, seed=0)) == 3

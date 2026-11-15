@@ -191,6 +191,30 @@ def select(rows, *, cycle: int, abstain_ratio: float = 2.0, seed: int = 0, resam
     return records, stats
 
 
+def cleanup_anchors(records, *, n: int, cycle: int, seed: int = 0) -> list[dict]:
+    """Up to n after-hand cleanup turns answered with exactly one valid update_scratchpad call, as SFT anchors.
+    SFT on action turns alone made fine-tunes answer cleanup turns with submit_action (c2b-s12: 67% correct)."""
+    pool = []
+    for r in records:
+        if r.get("kind") != "cleanup" or r.get("cutoff") or not (r.get("reasoning") or "").strip():
+            continue
+        calls = r.get("tool_calls") or []
+        if len(calls) != 1 or calls[0].get("name") != "update_scratchpad":
+            continue
+        args = calls[0].get("arguments")
+        try:
+            args = json.loads(args) if isinstance(args, str) else args
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(args, dict) or set(args) != {"contents"} or len(args["contents"]) > 5000:
+            continue
+        pool.append({"decision_id": r["span_id"], "messages": r["messages"], "weight": 1.0, "source": "cleanup_anchor",
+                     "cycle": cycle, "target": {"reasoning": r["reasoning"], "content": r.get("content") or "",
+                                                "tool_call": {"name": "update_scratchpad", "arguments": args}}})
+    random.Random(seed).shuffle(pool)
+    return pool[:n]
+
+
 def main() -> None:
     from poker.arena import db
     from poker.teacher import judge
@@ -204,6 +228,10 @@ def main() -> None:
     parser.add_argument("--template-weight", type=float, default=0.0,
                         help="weight of unvalidated fixed-sentence corrections; 0 drops them (default)")
     parser.add_argument("--exploits", help="comma list of teacher v5 exploit rules to enable: river_fold,steal,stab,oversize")
+    parser.add_argument("--cleanup-ratio", type=float, default=0.3,
+                        help="cleanup-turn anchors per action record (keeps update_scratchpad working)")
+    parser.add_argument("--cleanup-deployment", default="infer_d3d2b6b92171",
+                        help="whose cleanup replies to use as anchors (base answers 98.5% correctly)")
     parser.add_argument("--rules", help="comma list of teacher rules whose corrections to keep (ablations); others become anchors")
     parser.add_argument("--keep-say", action="store_true", help="keep the table-talk 'say' argument in targets (default: removed)")
     parser.add_argument("--weight-scale", type=float, default=1.0, help="multiply every weight (newer cycles weigh more)")
@@ -238,6 +266,12 @@ def main() -> None:
                             template_weight=args.template_weight, weight_scale=args.weight_scale,
                             rules=tuple(args.rules.split(",")) if args.rules else None,
                             strip_say=not args.keep_say)
+    if args.cleanup_ratio > 0:
+        cleanups = [json.loads(line) for line in args.joined.open(encoding="utf-8")]
+        cleanups = [r for r in cleanups if r.get("source") == "arena" and r.get("deployment") == args.cleanup_deployment]
+        extra = cleanup_anchors(cleanups, n=round(args.cleanup_ratio * len(records)), cycle=args.cycle)
+        records += extra
+        stats["cleanup_anchors"] = len(extra)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", encoding="utf-8") as stream:
         for record in records:

@@ -38,6 +38,23 @@ TOOL_RE = re.compile(r"<tool_call>\s*<function=([^>\s]+)>(.*?)</function>\s*</to
 PARAM_RE = re.compile(r"<parameter=([^>\s]+)>\n?(.*?)\n?</parameter>", re.S)
 GPU_USD_PER_HOUR = {"H100": 3.95, "A100-80GB": 2.50, "L40S": 1.95}
 
+# Teacher-only steering (NOT saved in traces; the student is trained on the plain harness context).
+TEACHER_NOTE = """
+
+IMPORTANT - hard limit: you have exactly {max_turns} turns (assistant replies) for this task, including the final EXIT.
+Only your LAST submission that compiles is graded; if you never call submit you get 0 points.
+Plan: think through the algorithm first, write a complete solution, check it on the samples with run_cpp at most once
+or twice, and call submit by turn {submit_by} at the latest. After a successful submit, reply EXIT."""
+
+
+def turn_reminder(used: int, max_turns: int) -> str:
+    left = max_turns - used
+    if left <= 1:
+        return (f"\n\n[Turn {used} of {max_turns} used. This is your LAST turn: call submit with your best complete "
+                f"solution now (or reply EXIT if you already submitted it).]")
+    return (f"\n\n[Turn {used} of {max_turns} used, {left} left. If you have a working solution, submit it now; "
+            f"do not spend your remaining turns on more test runs.]")
+
 
 def parse_completion(text: str) -> tuple[str, str, list[dict], bool]:
     """MiMo output -> (reasoning, visible text, tool calls, malformed?)."""
@@ -90,7 +107,10 @@ async def episode(problem: dict, sample: int, client: httpx.AsyncClient, tok, a,
         tools = CPTools(problem)
         tool_fns = {"run_cpp": tools.run_cpp, "submit": tools.submit}
         mimo_tools = [{"type": "function", "function": t.to_spec()} for t in tool_fns.values()]
-        msgs = [{"role": "system", "content": SYSTEM_PROMPT.format(max_turns=a.max_turns)},
+        system = SYSTEM_PROMPT.format(max_turns=a.max_turns)
+        if a.teacher_steering:
+            system += TEACHER_NOTE.format(max_turns=a.max_turns, submit_by=max(1, a.max_turns - 2))
+        msgs = [{"role": "system", "content": system},
                 {"role": "user", "content": problem["statement"]}]
         turns, out_tok, stop, bad_streak = [], 0, "max_turns", 0
         t0 = time.time()
@@ -131,8 +151,9 @@ async def episode(problem: dict, sample: int, client: httpx.AsyncClient, tok, a,
                     result = res.messages[0]["content"]
                 else:
                     result = json.dumps({"error": f"Unknown tool {c['name']}"})
-                turn["tool_results"].append(result)
-                msgs.append({"role": "tool", "content": result})
+                turn["tool_results"].append(result)  # saved clean (student sees the plain harness output)
+                shown = result + (turn_reminder(t + 1, a.max_turns) if a.teacher_steering and i == len(calls) - 1 else "")
+                msgs.append({"role": "tool", "content": shown})
             turns.append(turn)
             if malformed and not calls:
                 bad_streak += 1
@@ -208,4 +229,6 @@ if __name__ == "__main__":
     ap.add_argument("--budget", type=float, default=60.0, help="stop starting episodes past this est. GPU USD")
     ap.add_argument("--containers", type=int, default=4, help="GPU containers assumed for the cost estimate")
     ap.add_argument("--gpu", default="H100")
+    ap.add_argument("--no-teacher-steering", dest="teacher_steering", action="store_false",
+                    help="disable the teacher-only turn-limit note and per-turn reminders")
     asyncio.run(main(ap.parse_args()))

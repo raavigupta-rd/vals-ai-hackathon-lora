@@ -79,3 +79,11 @@ def test_v3_rules_have_correction_text_and_bust_rules_weigh_more():
                         cycle=3, abstain_ratio=0, seed=0, resampled=own)
     by_id = {r["decision_id"]: r for r in records}
     assert by_id["s"]["weight"] == 3.0 and by_id["r"]["weight"] == 2.0
+
+
+def test_template_weight_zero_keeps_only_validated_corrections():
+    verdict = {"rule": "facing_raise", "preferred": "fold", "agree": False}
+    rows = [(joined("own", "call"), verdict, "K7o"), (joined("tmpl", "call"), dict(verdict), "J4o")]
+    own = {"own": {"reasoning": "mine", "content": "", "arguments": {"action": "fold"}}}
+    records, stats = select(rows, cycle=2, abstain_ratio=0, seed=0, resampled=own, template_weight=0)
+    assert [r["decision_id"] for r in records] == ["own"] and stats["unvalidated_dropped"] == 1

@@ -101,10 +101,11 @@ def _correction_args(verdict: dict, record: dict) -> dict | None:
     return {"action": "raise", "amount": int(amount)}
 
 
-def select(rows, *, cycle: int, abstain_ratio: float = 2.0, seed: int = 0, resampled: dict | None = None):
+def select(rows, *, cycle: int, abstain_ratio: float = 2.0, seed: int = 0, resampled: dict | None = None,
+           template_weight: float = TEMPLATE_WEIGHT):
     """rows: (joined record, teacher verdict, hand code). Returns (records, stats)."""
     resampled = resampled or {}
-    stats = {"corrections": 0, "resampled": 0, "agreements": 0, "abstain_pool": 0, "abstain_kept": 0, "skipped": 0}
+    stats = {"corrections": 0, "resampled": 0, "agreements": 0, "abstain_pool": 0, "abstain_kept": 0, "skipped": 0, "unvalidated_dropped": 0}
     records, pool = [], []
 
     def base(record, source, weight, target):
@@ -125,13 +126,16 @@ def select(rows, *, cycle: int, abstain_ratio: float = 2.0, seed: int = 0, resam
                 stats["resampled"] += 1
                 stats["corrections"] += 1
                 continue
+            if template_weight <= 0:  # keep only corrections validated by a graded re-rollout
+                stats["unvalidated_dropped"] += 1
+                continue
             args = _correction_args(verdict, record)
             if args is None:
                 stats["skipped"] += 1
                 continue
             target = {"reasoning": correction_reasoning(verdict, code), "content": "",
                       "tool_call": {"name": "submit_action", "arguments": args}}
-            records.append(base(record, "teacher_correction", TEMPLATE_WEIGHT, target))
+            records.append(base(record, "teacher_correction", template_weight, target))
             stats["corrections"] += 1
         elif verdict.get("agree") is True and (target := target_from_reply(record)):
             records.append(base(record, "teacher_agree", AGREE_WEIGHT, target))
@@ -156,6 +160,8 @@ def main() -> None:
     parser.add_argument("--deployment", help="only decisions by this deployment id (the current entry)")
     parser.add_argument("--cycle", type=int, required=True)
     parser.add_argument("--abstain-ratio", type=float, default=2.0)
+    parser.add_argument("--template-weight", type=float, default=0.0,
+                        help="weight of unvalidated fixed-sentence corrections; 0 drops them (default)")
     parser.add_argument("--resampled", type=Path, help="poker/sft/resample.py output: own-words corrections")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
@@ -179,7 +185,8 @@ def main() -> None:
                           (match["match_id"], match["hand"], match["seat"])).fetchone()
         from poker.teacher import hand_code
         rows.append((record, verdict, hand_code([row[0], row[1]]) if row else "this hand"))
-    records, stats = select(rows, cycle=args.cycle, abstain_ratio=args.abstain_ratio, resampled=resampled)
+    records, stats = select(rows, cycle=args.cycle, abstain_ratio=args.abstain_ratio, resampled=resampled,
+                            template_weight=args.template_weight)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", encoding="utf-8") as stream:
         for record in records:

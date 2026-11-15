@@ -29,3 +29,21 @@ def test_pick_reply_skips_cutoffs_overlong_and_invalid_replies():
 def test_pick_reply_accepts_bet_for_raise_and_keeps_the_amount():
     picked = pick_reply(PROMPT, [response("raise", amount=6)], preferred="raise", validate=lambda p, r: True)
     assert picked["arguments"] == {"action": "raise", "amount": 6}
+
+
+from poker.sft.resample import hinted_messages, mentions_hint
+
+
+def test_hint_goes_into_the_system_message_only_for_the_teacher():
+    messages = [{"role": "system", "content": "rules"}, {"role": "user", "content": "state"}]
+    hinted = hinted_messages(messages, "You need 57% equity; 96o has 38%.")
+    assert hinted[0]["content"].startswith("rules") and "57%" in hinted[0]["content"]
+    assert hinted[1] == messages[1] and messages[0]["content"] == "rules"  # the original is untouched
+
+
+def test_replies_that_mention_the_hint_are_rejected():
+    assert mentions_hint("As the coaching note says, fold.")
+    assert mentions_hint("Per the hint, this is a fold.")
+    assert not mentions_hint("I need 57% equity and have 38%. Fold.")
+    samples = [response("fold", reasoning="The coaching note says fold.")]
+    assert pick_reply(PROMPT, samples, preferred="fold", validate=lambda p, r: True) is None
